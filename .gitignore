@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Variáveis de ambiente
+.env
+
+# Modelos e datasets grandes (hospedados no Hugging Face Hub)
+*.gguf
+*.safetensors
+*.bin
+*.xlsx
+*.xls
+models/
+datasets/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
