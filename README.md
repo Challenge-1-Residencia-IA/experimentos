@@ -4,18 +4,31 @@ Repositório de experimentação: fine-tuning e avaliação de modelos (atualmen
 
 ## Estrutura
 
+Inspirada no [Cookiecutter Data Science](https://cookiecutter-data-science.drivendata.org/), reduzida ao que o projeto precisa:
+
 ```
-scripts/    # scripts de fine-tuning e avaliação
-prompts/    # versões de prompt em teste (few-shot, boundary definitions etc.)
-results/    # resultados de avaliação versionados (JSON/Markdown, não os datasets em si)
+data/
+├── raw/          # datasets baixados (Fake.br-Corpus, FakeTrue.Br) — não versionado
+├── interim/      # dados intermediários (ex.: esquema comum unificado dos datasets)
+└── processed/    # pool final de exemplos para few-shot/avaliação — não versionado
+notebooks/        # EDA e exploração — numeração 01-, 02-, 03-...
+models/           # adaptadores LoRA/QLoRA locais, antes do upload ao Hugging Face Hub — não versionado
+reports/
+└── figures/      # gráficos exportados da EDA
+scripts/          # scripts de fine-tuning e avaliação
+prompts/          # versões de prompt em teste (few-shot, boundary definitions etc.)
+results/          # resultados de avaliação versionados (JSON/Markdown)
+tests/            # testes das funções de avaliação/métricas
 ```
+
+Só a estrutura das pastas de dados/modelos é versionada (arquivos `.gitkeep`) — o conteúdo real fica de fora do Git (ver `.gitignore`).
 
 ## Ambiente local
 
 ```bash
-python3 -m venv .venv
+make create_environment   # ou: python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+make requirements          # ou: pip install -r requirements.txt
 cp .env.example .env
 ```
 
@@ -23,9 +36,9 @@ Pré-requisitos: Ollama instalado, modelo baixado (`ollama pull qwen2.5:7b`) —
 
 ## Modelos e datasets
 
-Pesos de modelo e datasets grandes **não são versionados aqui** (ver `.gitignore`). Modelos fine-tunados (adaptadores LoRA/QLoRA) são hospedados no [Hugging Face Hub](https://huggingface.co) e referenciados por `HF_MODEL_REPO` no `.env` — mesma convenção documentada no README do [`bot-core`](https://github.com/Challenge-1-Residencia-IA/bot-core#modelos-e-datasets).
+Pesos de modelo e datasets grandes **não são versionados aqui** (ver `.gitignore`). Modelos fine-tunados (adaptadores LoRA/QLoRA) são hospedados no [Hugging Face Hub](https://huggingface.co) e referenciados por `HF_MODEL_REPO` no `.env` — mesma convenção documentada no README do [`bot-core`](https://github.com/Challenge-1-Residencia-IA/bot-core#modelos-e-datasets). Localmente, ficam em `models/` antes do upload.
 
-Datasets de teste usados na avaliação ficam fora do Git — baixe da fonte original (ver `Documentacao/docs/historias-de-usuario.md` e o dataset da Sprint 1) ou aponte os scripts para o caminho local.
+Datasets baixados ficam em `data/raw/` — baixe da fonte original (ver `Documentacao/docs/historias-de-usuario.md` e o dataset da Sprint 1) ou aponte os scripts para o caminho local.
 
 ## Resultados
 
