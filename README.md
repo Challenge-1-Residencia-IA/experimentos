@@ -62,6 +62,49 @@ e F1 macro em `results/`, além de registrar uma run de treino e outra de avalia
 no experimento `fakebr-classificacao` do MLflow. Use `--input-csv` para apontar
 outro local do CSV e `--test-size`, `--valid-size` ou `--seed` para mudar o split.
 
+### Dataset com evidências
+
+Para treinar uma versão que receba alegação + evidências e possa responder
+`FALSA`, `VERDADEIRA`, `FORA_DE_CONTEXTO` ou `INCONCLUSIVA`:
+
+```bash
+mkdir -p raw/factckbr
+curl -L https://raw.githubusercontent.com/jghm-f/FACTCK.BR/master/FACTCKBR.tsv \
+  -o raw/factckbr/FACTCKBR.tsv
+python scripts/executar_pipeline_evidencias.py \
+  --adapters-dir models/adapters-evidencias-v1 \
+  --iters 100
+```
+
+O preparo usa checagens rastreáveis do FACTCK.BR, remove textos curtos ou que só
+repetem a alegação, reduz expressões que vazam o rótulo e balanceia somente o
+treino. Validação e teste permanecem naturais e sem exemplos sintéticos. Os
+arquivos `*_audit.jsonl` mantêm URL, editora, rótulo original e indicação de
+exemplos derivados. Consulte `data/evidencias/metadata.json` antes de treinar; o
+conjunto ainda precisa de revisão humana para uso em produção.
+
+O treino usa por padrão `--mask-prompt`, sequência de 1024 tokens, seed 42,
+validação e checkpoint a cada 25 iterações. Para comparar experimentos, use um
+diretório de adaptadores novo. Na primeira execução, o snapshot do modelo é
+baixado para o cache do Hugging Face antes da abertura do painel, com progresso
+visível; downloads interrompidos são retomados pelo próprio Hub. Para continuar
+explicitamente de um checkpoint:
+
+```bash
+python scripts/treinar_visual.py \
+  --data-dir data/evidencias \
+  --adapters-dir models/adapters-evidencias-v2 \
+  --resume-adapter-file models/adapters-evidencias-v1/0000100_adapters.safetensors \
+  --iters 100
+```
+
+Depois, avalie sempre no teste separado:
+
+```bash
+python scripts/avaliar_evidencias.py \
+  --adapters-dir models/adapters-evidencias-v1
+```
+
 ## Usar um modelo já treinado
 
 Após o fine-tuning, classifique uma notícia sem treinar novamente:
@@ -82,15 +125,14 @@ O comando abaixo extrai o texto da página, busca evidências na web e envia not
 
 ```bash
 python scripts/verificar_link.py "https://exemplo.com/noticia" \
-  --adapters-dir models/adapters-fakebr-v1 \
+  --adapters-dir models/adapters-evidencias-v1 \
   --output results/verificacao_link.json
 ```
 
-O modelo usado é o Qwen-base com seu adaptador LoRA. O adaptador atual foi treinado
-somente com rótulos Fake.br, então ainda não aprendeu a justificar vereditos com
-fontes: as evidências retornadas servem para revisão humana. Para transformar isso
-em checagem fundamentada, o próximo fine-tuning precisa de exemplos com alegação,
-evidências e veredito esperado.
+O verificador remove a própria URL analisada, redes sociais, URLs e domínios
+repetidos antes da inferência. Um veredito conclusivo sem citação válida é
+convertido para `INCONCLUSIVA`. Os snippets de busca ainda não substituem a leitura
+das fontes completas, portanto resultados importantes exigem revisão humana.
 
 Cada verificação também cria uma run no experimento `fakebr-verificacao` do
 MLflow, com URL, modelo, veredito, quantidade de fontes recuperadas e o relatório

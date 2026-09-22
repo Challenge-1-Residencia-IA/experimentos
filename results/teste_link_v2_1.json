@@ -1,0 +1,43 @@
+{
+  "url_analisada": "https://g1.globo.com/sc/santa-catarina/noticia/2026/09/22/helicoptero-com-cantor-rick-encontrado.ghtml",
+  "titulo": "Cantor Rick e mais 4 morrem após queda de helicóptero em SC | G1",
+  "alegacao_analisada": "Cantor Rick e mais 4 morrem após queda de helicóptero em SC Helicóptero com cantor Rick, dois passageiros e piloto é encontrado; ninguém sobreviveu Os destroços do helicóptero com o cantor Rick , da dupla com Renner, que desapareceu na Serra de Santa Catarina , foram encontrados nesta terça-feira (22) na região de Santa Bárbara, no interior de Urubici .",
+  "consulta_de_evidencias": "Cantor Rick e mais 4 morrem após queda de helicóptero em SC Helicóptero com cantor Rick, dois passageiros e piloto é encontrado; ninguém sobreviveu Os destroços do helicóptero com o cantor Rick , da dupla com Renner, que desapareceu na Serra de Santa Catarina , foram encontrados nesta terça-feira (22) na região de Santa Bárbara, no interior de Urubici .",
+  "veredito_modelo_fine_tunado": "FALSA",
+  "justificativa": "3 hours ago - Helicóptero com cantor Rick, dois ... SC · O Corpo de Bombeiros Militar de Santa Catarina (CBMSC) encontrou, por volta do meio-dia desta terça-feira (22), os destroços do helicóptero que estava desaparecido desde a tarde de segunda-feira (21), na Serra catarinense…",
+  "fontes_usadas": [
+    1
+  ],
+  "resposta_json_valida": true,
+  "citacoes_validas": true,
+  "resposta_bruta_modelo": "{\"veredito\": \"FALSA\", \"justificativa\": \"3 hours ago - Helicóptero com cantor Rick, dois ... SC · O Corpo de Bombeiros Militar de Santa Catarina (CBMSC) encontrou, por volta do meio-dia desta terça-feira (22), os destroços do helicóptero que estava desaparecido desde a tarde de segunda-feira (21), na Serra catarinense…\", \"fontes_usadas\": [1]}",
+  "fontes_recuperadas": [
+    {
+      "titulo": "Destroços de helicóptero com cantor Rick são encontrados com cinco mortos em SC",
+      "url": "https://oglobo.globo.com/brasil/noticia/2026/09/22/cbmsc-encontra-destrocos-da-aeronave-desaparecida-na-serra-catarinense-com-tripulantes.ghtml",
+      "trecho": "3 hours ago - Helicóptero com cantor Rick, dois ... SC · O Corpo de Bombeiros Militar de Santa Catarina (CBMSC) encontrou, por volta do meio-dia desta terça-feira (22), os destroços do helicóptero que estava desaparecido desde a tarde de segunda-feira (21), na Serra catarinense..."
+    },
+    {
+      "titulo": "Cantor Rick e mais 4 pessoas morrem em acidente de helicóptero em Santa Catarina - Rolling Stone Brasil",
+      "url": "https://rollingstone.com.br/musica/cantor-rick-e-mais-4-pessoas-morrem-em-acidente-de-helicoptero-em-santa-catarina/",
+      "trecho": "4 hours ago - O helicóptero que transportava o cantor sertanejo Rick, da dupla Rick & Renner, foi encontrado destruído na tarde desta terça, 22, na Serra de Santa Catarina, e não há nenhum sobrevivente (via G1)."
+    },
+    {
+      "titulo": "Bombeiros encontram destroços de helicóptero que levava cantor Rick; o que se sabe - BBC News Brasil",
+      "url": "https://www.bbc.com/portuguese/articles/cqpvepex8n43o",
+      "trecho": "3 hours ago - A corporação confirmou nesta terça-feira (22/9) que o cantor estava entre as cinco pessoas encontradas próximas aos destroços da aeronave. Rick e o palestrante Bruno Avelar estavam entre os passageiros do helicóptero que caiu em Santa ..."
+    },
+    {
+      "titulo": "Bombeiros confirmam morte do cantor Rick em queda de helicóptero em SC | CNN Brasil",
+      "url": "https://www.cnnbrasil.com.br/nacional/sul/sc/bombeiros-confirmam-morte-do-cantor-rick-em-queda-de-helicoptero/",
+      "trecho": "2 hours ago - Cantor Rick e mais quatro: quem são os mortos em queda de aeronave em SC · Famosos lamentam morte de Rick Sollo, da dupla sertaneja com Renner · Morte de Rick: Helicóptero foi localizado em área de dificil acesso · A operação de busca ..."
+    },
+    {
+      "titulo": "Cantor Rick e mais 4 morrem após queda de helicóptero em SC; destroços são encontrados - TV Prefeito",
+      "url": "https://tvprefeito.com/cantor-rick-e-mais-4-morrem-apos-queda-de-helicoptero-em-sc-destrocos-sao-encontrados/",
+      "trecho": "2 hours ago - Os destroços do helicóptero com o cantor Rick, da dupla com Renner, que desapareceu na Serra de Santa Catarina, foram encontrados nesta terça-feira (22) na região de Santa Bárbara, no interior de Urubici."
+    }
+  ],
+  "fontes_descartadas": 10,
+  "aviso": "Veredito automatizado baseado nos snippets recuperados; mantenha revisao humana para decisoes importantes."
+}

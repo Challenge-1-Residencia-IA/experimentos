@@ -1,0 +1,61 @@
+{
+  "url_analisada": "https://g1.globo.com/politica/eleicoes/2026/noticia/2026/09/22/na-onu-lula-diz-que-nas-eleicoes-brasileiros-vao-escolher-entre-democracia-e-negacionismo.ghtml",
+  "titulo": "Lula na ONU: brasileiros escolherão entre democracia e negacionismo | G1",
+  "alegacao_analisada": "Lula na ONU: brasileiros escolherão entre democracia e negacionismo 'A democracia brasileira pertence aos brasileiros', diz Lula na ONU O presidente Luiz Inácio Lula da Silva ( PT ) dedicou o trecho final do discurso na Assembleia Geral das Nações Unidas (ONU) nesta terça-feira (22) para falar sobre o processo eleitoral brasileiro.",
+  "consulta_de_evidencias": "Lula na ONU: brasileiros escolherão entre democracia e negacionismo 'A democracia brasileira pertence aos brasileiros', diz Lula na ONU O presidente Luiz Inácio Lula da Silva ( PT ) dedicou o trecho final do discurso na Assembleia Geral das Nações Unidas (ONU) nesta terça-feira (22) para falar sobre o processo eleitoral brasileiro.",
+  "veredito_modelo_fine_tunado": "VERDADEIRA",
+  "justificativa": "O presidente Luiz Inácio Lula da Silva (PT) levou o tema da eleição brasileira à tribuna da Assembleia Geral da Organização das Nações Unidas (ONU), nesta terça-feira (22/9), e afirmou que os brasileiros vão decidir entre democracia e negacionismo no próximo 4 de outubro.",
+  "fontes_usadas": [
+    1
+  ],
+  "resposta_json_valida": true,
+  "citacoes_validas": true,
+  "resposta_bruta_modelo": "{\"veredito\": \"VERDADEIRA\", \"justificativa\": \"O presidente Luiz Inácio Lula da Silva (PT) levou o tema da eleição brasileira à tribuna da Assembleia Geral da Organização das Nações Unidas (ONU), nesta terça-feira (22/9), e afirmou que os brasileiros vão decidir entre democracia e negacionismo no próximo 4 de outubro.\", \"fontes_usadas\": [1]}",
+  "fontes_recuperadas": [
+    {
+      "titulo": "Na ONU, Lula diz que eleitores vão decidir entre democracia e negacionismo",
+      "url": "https://www.metropoles.com/mundo/na-onu-lula-diz-que-eleitores-vao-decidir-entre-democracia-e-negacionismo",
+      "trecho": "O presidente Luiz Inácio Lula da Silva (PT) levou o tema da eleição brasileira à tribuna da Assembleia Geral da Organização das Nações Unidas (ONU), nesta terça-feira (22/9), e afirmou que os brasileiros vão decidir entre democracia e negacionismo no próximo 4 de outubro."
+    },
+    {
+      "titulo": "Na ONU, Lula diz que eleição no Brasil ficará entre 'democracia e negacionismo'",
+      "url": "https://www.correiobraziliense.com.br/politica/2026/09/7505707-na-onu-lula-diz-que-eleicao-no-brasil-ficara-entre-democracia-e-negacionismo.html",
+      "trecho": "7 hours ago - O presidente Luiz Inácio Lula ... Unidas (ONU), em Nova York, que as eleições brasileiras de 4 de outubro representarão uma escolha entre “democracia e negacionismo”. Segundo ele, os eleitores não decidirão ..."
+    },
+    {
+      "titulo": "Lula faz alerta sobre eleição brasileira na ONU - ND Mais",
+      "url": "https://ndmais.com.br/politica/lula-onu-eleicao-democracia-negacionismo/",
+      "trecho": "Em discurso na Organização das Nações Unidas (ONU), nesta terça-feira (22), o presidente Luiz Inácio Lula da Silva afirmou que as eleições brasileiras de 4 de outubro representarão uma escolha entre a continuidade da democracia e o avanço do que classificou como \"negacionismo\". Ao ..."
+    },
+    {
+      "titulo": "Brasileiros vão decidir nas urnas 'entre democracia e negacionismo ...",
+      "url": "https://noticias.uol.com.br/ultimas-noticias/rfi/2026/09/22/brasileiros-vao-decidir-nas-urnas-entre-democracia-e-negacionismo-diz-lula-em-tribuna-da-onu.htm",
+      "trecho": "O presidente brasileiro Luiz Inácio Lula da Silva abriu nesta terça-feira (22), em Nova York, o debate de líderes da 81ª Assembleia Geral das Nações Unidas com duras críticas ao ..."
+    },
+    {
+      "titulo": "Lula sobre eleições: \"Brasileiros vão decidir entre democracia e ...",
+      "url": "https://atarde.com.br/politica/lula-sobre-eleicoes-brasileiros-vao-decidir-entre-democracia-e-negacionismo-1403018",
+      "trecho": "O presidente Luiz Inácio Lula da Silva (PT) subiu o tom nesta terça-feira, 22, ao defender a relevência das eleições brasileiras, que serão decididas no próximo dia 4 de outubro. Em discurso na abertura da Assembleia Geral da Organização das Nações Unidas (ONU), Lula afirmou que o ..."
+    }
+  ],
+  "fontes_descartadas": 10,
+  "auditoria_do_veredito": {
+    "regra_geral": "Um veredito conclusivo exige pelo menos uma fonte independente e uma citacao valida.",
+    "requisito_para_o_veredito_emitido": "A fonte citada deve confirmar objetivamente a alegacao.",
+    "minimo_fontes_independentes_configurado": 1,
+    "fontes_independentes_recuperadas": 5,
+    "justificativa_gerada_pelo_modelo": "O presidente Luiz Inácio Lula da Silva (PT) levou o tema da eleição brasileira à tribuna da Assembleia Geral da Organização das Nações Unidas (ONU), nesta terça-feira (22/9), e afirmou que os brasileiros vão decidir entre democracia e negacionismo no próximo 4 de outubro.",
+    "fontes_que_o_modelo_disse_ter_usado": [
+      {
+        "indice": 1,
+        "titulo": "Na ONU, Lula diz que eleitores vão decidir entre democracia e negacionismo",
+        "url": "https://www.metropoles.com/mundo/na-onu-lula-diz-que-eleitores-vao-decidir-entre-democracia-e-negacionismo",
+        "trecho": "O presidente Luiz Inácio Lula da Silva (PT) levou o tema da eleição brasileira à tribuna da Assembleia Geral da Organização das Nações Unidas (ONU), nesta terça-feira (22/9), e afirmou que os brasileiros vão decidir entre democracia e negacionismo no próximo 4 de outubro."
+      }
+    ],
+    "alertas": [
+      "A justificativa e a relacao entre alegacao e fonte sao geradas pelo modelo; este relatorio nao prova automaticamente que a citacao sustenta o veredito."
+    ]
+  },
+  "aviso": "Veredito automatizado baseado nos snippets recuperados; mantenha revisao humana para decisoes importantes."
+}

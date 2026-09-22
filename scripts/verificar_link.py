@@ -4,26 +4,31 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
 import mlflow
 import requests
 from bs4 import BeautifulSoup
-from mlx_lm import generate, load
 
 from amostrar_e_verificar import (
     buscar_evidencias,
     formatar_evidencias,
 )
-from classificar_noticia import interpretar_resposta
-from preparar_fakebr import PROMPT_SISTEMA
+from evidencias_utils import montar_prompt_evidencias, validar_resposta
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 USER_AGENT = "SiftFactCheck/1.0 (+local research tool)"
 DEFAULT_MODEL = "mlx-community/Qwen2.5-7B-Instruct-4bit"
-DEFAULT_ADAPTERS = ROOT_DIR / "models/adapters"
+DEFAULT_ADAPTERS = ROOT_DIR / "models/adapters-evidencias"
+DOMINIOS_SOCIAIS = {"facebook.com", "instagram.com", "tiktok.com", "x.com", "twitter.com", "youtube.com"}
+DOMINIOS_PRIORITARIOS = (
+    ".gov.br", ".jus.br", ".leg.br", ".edu.br", "who.int", "reuters.com",
+    "apnews.com", "agenciabrasil.ebc.com.br", "fiocruz.br", "scielo.br",
+    "aosfatos.org", "lupa.uol.com.br", "projetocomprova.com.br",
+)
 
 
 def extrair_texto(url: str, timeout: int, max_chars: int) -> tuple[str, str]:
@@ -48,14 +53,94 @@ def extrair_texto(url: str, timeout: int, max_chars: int) -> tuple[str, str]:
     return titulo, texto[:max_chars]
 
 
-def montar_prompt(tokenizer, texto: str, evidencias: str) -> str:
-    mensagens = [
-        {"role": "system", "content": PROMPT_SISTEMA},
-        {"role": "user", "content": f"Notícia:\n{texto}\n\nEvidências encontradas:\n{evidencias}"},
-    ]
-    if hasattr(tokenizer, "apply_chat_template"):
-        return tokenizer.apply_chat_template(mensagens, tokenize=False, add_generation_prompt=True)
-    return f"{PROMPT_SISTEMA}\n\nNotícia:\n{texto}\n\nEvidências:\n{evidencias}\nResposta:"
+def host_normalizado(url: str) -> str:
+    host = urlparse(url).netloc.lower().split(":")[0]
+    return host[4:] if host.startswith("www.") else host
+
+
+def url_normalizada(url: str) -> str:
+    parsed = urlparse(url)
+    return f"{parsed.scheme.lower()}://{host_normalizado(url)}{parsed.path.rstrip('/')}"
+
+
+def filtrar_fontes(fontes: list[dict[str, str]], url_original: str) -> list[dict[str, str]]:
+    """Remove autocitacao, redes sociais, URLs repetidas e dominios repetidos."""
+    original = url_normalizada(url_original)
+    host_original = host_normalizado(url_original)
+    vistas, dominios, saida = set(), set(), []
+    for fonte in fontes:
+        url = fonte.get("url", "").strip()
+        host = host_normalizado(url)
+        normalizada = url_normalizada(url) if url else ""
+        if (
+            not url
+            or not host
+            or normalizada == original
+            or host == host_original
+            or any(host == social or host.endswith(f".{social}") for social in DOMINIOS_SOCIAIS)
+            or normalizada in vistas
+            or host in dominios
+        ):
+            continue
+        vistas.add(normalizada)
+        dominios.add(host)
+        saida.append(fonte)
+    def prioridade(fonte: dict[str, str]) -> int:
+        host = host_normalizado(fonte.get("url", ""))
+        for indice, dominio in enumerate(DOMINIOS_PRIORITARIOS):
+            dominio_limpo = dominio.lstrip(".")
+            if host == dominio_limpo or host.endswith(f".{dominio_limpo}"):
+                return indice
+        return len(DOMINIOS_PRIORITARIOS)
+
+    return sorted(saida, key=prioridade)
+
+
+def extrair_alegacao(titulo: str, texto: str, max_chars: int = 500) -> str:
+    """Usa titulo e primeiro periodo como representacao curta da alegacao."""
+    titulo_limpo = re.split(r"\s+[|–—-]\s+", titulo, maxsplit=1)[0].strip()
+    primeira_frase = re.split(r"(?<=[.!?])\s+", texto.strip(), maxsplit=1)[0]
+    partes = [parte for parte in (titulo_limpo, primeira_frase) if parte]
+    alegacao = " ".join(dict.fromkeys(partes))
+    return alegacao[:max_chars].rsplit(" ", 1)[0] if len(alegacao) > max_chars else alegacao
+
+
+def montar_auditoria(verificacao: dict, fontes: list[dict[str, str]], minimo_fontes: int) -> dict:
+    """Explica a regra aplicada sem inventar cadeia de raciocinio do modelo."""
+    citadas = []
+    for indice in verificacao["fontes_usadas"]:
+        fonte = fontes[indice - 1]
+        citadas.append({
+            "indice": indice,
+            "titulo": fonte.get("titulo", ""),
+            "url": fonte.get("url", ""),
+            "trecho": fonte.get("trecho", ""),
+        })
+    veredito = verificacao["veredito"]
+    requisito_especifico = {
+        "FALSA": "A fonte citada deve contradizer objetivamente a alegacao.",
+        "VERDADEIRA": "A fonte citada deve confirmar objetivamente a alegacao.",
+        "FORA_DE_CONTEXTO": "A fonte citada deve mostrar o contexto original e a alteracao de data, local ou sentido.",
+        "INCONCLUSIVA": "As fontes sao ausentes, insuficientes, conflitantes ou nao permitem concluir.",
+    }[veredito]
+    alertas = []
+    if veredito != "INCONCLUSIVA" and not citadas:
+        alertas.append("Veredito conclusivo sem fonte citada; a resposta foi rebaixada para INCONCLUSIVA.")
+    if len(fontes) < minimo_fontes:
+        alertas.append("Ha menos fontes independentes que o minimo configurado.")
+    alertas.append(
+        "A justificativa e a relacao entre alegacao e fonte sao geradas pelo modelo; "
+        "este relatorio nao prova automaticamente que a citacao sustenta o veredito."
+    )
+    return {
+        "regra_geral": "Um veredito conclusivo exige pelo menos uma fonte independente e uma citacao valida.",
+        "requisito_para_o_veredito_emitido": requisito_especifico,
+        "minimo_fontes_independentes_configurado": minimo_fontes,
+        "fontes_independentes_recuperadas": len(fontes),
+        "justificativa_gerada_pelo_modelo": verificacao["justificativa"],
+        "fontes_que_o_modelo_disse_ter_usado": citadas,
+        "alertas": alertas,
+    }
 
 
 def arquivo_uri(path: Path) -> str:
@@ -77,28 +162,48 @@ def configurar_mlflow(tracking_uri: str, experiment_name: str) -> None:
 def main(args: argparse.Namespace) -> None:
     print("Baixando e extraindo a notícia...", flush=True)
     titulo, texto = extrair_texto(args.url, args.timeout, args.max_chars)
+    alegacao = extrair_alegacao(titulo, texto, args.max_claim_chars)
     print("Pesquisando evidências na web...", flush=True)
-    consulta = titulo or texto[:300]
-    fontes = buscar_evidencias(consulta, args.max_resultados)
+    consulta = alegacao
+    fontes_brutas = buscar_evidencias(consulta, args.max_resultados * 3)
+    fontes = filtrar_fontes(fontes_brutas, args.url)[:args.max_resultados]
     if not (args.adapters_dir / "adapters.safetensors").exists():
         raise FileNotFoundError(f"Adaptador não encontrado em '{args.adapters_dir}'.")
-    print("Carregando o modelo fine-tunado e gerando veredito...", flush=True)
-    modelo, tokenizer = load(args.model, adapter_path=str(args.adapters_dir))
-    resposta = generate(
-        modelo,
-        tokenizer,
-        prompt=montar_prompt(tokenizer, texto, formatar_evidencias(fontes)),
-        max_tokens=8,
-        verbose=False,
-    )
+    if len(fontes) < args.min_fontes_independentes:
+        resposta = json.dumps({
+            "veredito": "INCONCLUSIVA",
+            "justificativa": "Nao foram recuperadas fontes independentes suficientes.",
+            "fontes_usadas": [],
+        }, ensure_ascii=False)
+    else:
+        print("Carregando o modelo fine-tunado e gerando veredito...", flush=True)
+        from mlx_lm import generate, load
+
+        modelo, tokenizer = load(args.model, adapter_path=str(args.adapters_dir))
+        resposta = generate(
+            modelo,
+            tokenizer,
+            prompt=montar_prompt_evidencias(tokenizer, alegacao, formatar_evidencias(fontes)),
+            max_tokens=args.max_tokens,
+            verbose=False,
+        )
+    verificacao = validar_resposta(resposta, len(fontes))
+    auditoria = montar_auditoria(verificacao, fontes, args.min_fontes_independentes)
     resultado = {
         "url_analisada": args.url,
         "titulo": titulo,
+        "alegacao_analisada": alegacao,
         "consulta_de_evidencias": consulta,
-        "veredito_modelo_fine_tunado": interpretar_resposta(resposta),
+        "veredito_modelo_fine_tunado": verificacao["veredito"],
+        "justificativa": verificacao["justificativa"],
+        "fontes_usadas": verificacao["fontes_usadas"],
+        "resposta_json_valida": verificacao["json_valido"],
+        "citacoes_validas": verificacao["citacoes_validas"],
         "resposta_bruta_modelo": resposta,
         "fontes_recuperadas": fontes,
-        "aviso": "O veredito foi produzido pelo adaptador LoRA. Ele foi treinado apenas com rótulos Fake.br, não com pares de evidências; use as fontes recuperadas para revisão humana.",
+        "fontes_descartadas": len(fontes_brutas) - len(fontes),
+        "auditoria_do_veredito": auditoria,
+        "aviso": "Veredito automatizado baseado nos snippets recuperados; mantenha revisao humana para decisoes importantes.",
     }
     configurar_mlflow(args.tracking_uri, args.experiment_name)
     with mlflow.start_run(run_name="verificacao-link"):
@@ -114,7 +219,8 @@ def main(args: argparse.Namespace) -> None:
         mlflow.log_metrics({
             "fontes_recuperadas": len(fontes),
             "caracteres_noticia": len(texto),
-            "veredito": len(resultado)
+            "fontes_usadas": len(verificacao["fontes_usadas"]),
+            "resposta_json_valida": int(verificacao["json_valido"]),
         })
         mlflow.log_dict(resultado, "verification/resultado.json")
     texto_saida = json.dumps(resultado, ensure_ascii=False, indent=2)
@@ -133,11 +239,17 @@ if __name__ == "__main__":
     parser.add_argument("--adapters-dir", type=Path, default=DEFAULT_ADAPTERS)
     parser.add_argument("--max-resultados", type=int, default=5)
     parser.add_argument("--max-chars", type=int, default=12000)
+    parser.add_argument("--max-claim-chars", type=int, default=500)
+    parser.add_argument("--max-tokens", type=int, default=220)
+    parser.add_argument("--min-fontes-independentes", type=int, default=1)
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--output", type=Path, help="Salva o relatório JSON neste caminho.")
     parser.add_argument("--experiment-name", default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "fakebr-verificacao")
     parser.add_argument("--tracking-uri", default=os.environ.get("MLFLOW_TRACKING_URI") or arquivo_uri(ROOT_DIR / "mlflow.db"))
     args = parser.parse_args()
-    if args.max_resultados <= 0 or args.max_chars <= 0 or args.timeout <= 0:
-        parser.error("--max-resultados, --max-chars e --timeout devem ser positivos.")
+    if any(valor <= 0 for valor in (
+        args.max_resultados, args.max_chars, args.max_claim_chars, args.max_tokens,
+        args.min_fontes_independentes, args.timeout,
+    )):
+        parser.error("Os limites numericos devem ser positivos.")
     main(args)
