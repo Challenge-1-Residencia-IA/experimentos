@@ -1,23 +1,55 @@
-# Python
+# Python: bytecode, tooling and build products
 __pycache__/
 *.py[cod]
+*.so
 *.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Ambientes locais e credenciais
 .venv/
 venv/
-
-# Variáveis de ambiente
 .env
+.env.*
+!.env.example
 
-# Modelos e datasets grandes (hospedados no Hugging Face Hub)
+# Dados locais e reproduzíveis por meio dos scripts de preparação
+data/
+raw/
+datasets/
+
+# Modelos, adaptadores e checkpoints de fine-tuning
+models/
+checkpoints/
 *.gguf
 *.safetensors
 *.bin
+*.pt
+*.pth
+*.ckpt
+
+# MLflow local: banco SQLite, arquivos auxiliares e artefatos de runs
+mlflow.db*
+mlartifacts/
+mlruns/
+
+# Arquivos de entrada/saída pesados e visuais gerados
 *.xlsx
 *.xls
-models/
-datasets/
+results/*.png
+results/*.pdf
 
-# OS / editor
+# Logs e arquivos temporários
+*.log
+*.tmp
+*.temp
+
+# OS e editores
 .DS_Store
 .vscode/
 .idea/

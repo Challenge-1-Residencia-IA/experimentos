@@ -10,3 +10,4 @@ python-dotenv
 rich
 matplotlib
 seaborn
+mlflow

@@ -19,6 +19,18 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
+O rastreamento de experimentos é feito com MLflow. Por padrão, o treino usa
+`mlflow.db` e salva artefatos em `mlartifacts/`, ambos locais e ignorados pelo
+Git. Para abrir a interface após executar um treino:
+
+```bash
+mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000
+```
+
+Depois, acesse `http://127.0.0.1:5000`. Para usar outro servidor, defina
+`MLFLOW_TRACKING_URI` (e opcionalmente `MLFLOW_EXPERIMENT_NAME`) no `.env` ou
+passe `--tracking-uri` e `--experiment-name` ao script de treino.
+
 Pré-requisitos: Ollama instalado, modelo baixado (`ollama pull qwen2.5:7b`) — ver `Documentacao/docs/Sprint1/config-script.md` para o passo a passo já validado no time.
 
 ## Modelos e datasets
@@ -36,22 +48,51 @@ Cada rodada de avaliação salva um resultado versionado em `results/` (ex.: `re
 Todos os scripts aceitam caminhos explícitos e usam a raiz deste repositório como padrão.
 
 ```bash
-# 1. Preparar dados de extração (espera as pastas fake/ e true/)
-python scripts/preparar_dataset.py --dataset-path data/raw/full_texts
+# Rodada completa: split estratificado, treino e métricas no teste do Fake.br
+python scripts/executar_pipeline.py
 
-# 2. Treinar o adaptador LoRA
-python scripts/treinar_visual.py --data-dir data/processed --adapters-dir models/adapters
-
-# 3. Avaliar predições já produzidas e gerar o relatório canônico
-python scripts/metricas_tecnicas.py \
-  --predictions_file results/Sprint_1_Resultados_Modelo_Treinado.xlsx \
-  --output_json results/relatorio_metricas_tecnicas.json
-
-# 4. Gerar o dashboard a partir do mesmo relatório
-python scripts/gerar_dashboard.py \
-  --input-json results/relatorio_metricas_tecnicas.json
+# Smoke test: 20 iterações e 10 exemplos do conjunto de teste
+python scripts/executar_pipeline.py --iters 20 --limit-test 10
 ```
 
-O arquivo de predições precisa conter as colunas listadas no avaliador, incluindo
-`Divergencia_Esperada`. A coluna opcional `Resposta_Conclusiva` permite medir
-corretamente respostas assertivas emitidas sem evidência.
+A pipeline usa `raw/preprocessed/pre-processed.csv` e separa treino, validação e
+teste de forma estratificada (70/15/15, seed 42). O conjunto de teste nunca entra
+no fine-tuning. Ela gera predições e um relatório com acurácia, precisão, recall
+e F1 macro em `results/`, além de registrar uma run de treino e outra de avaliação
+no experimento `fakebr-classificacao` do MLflow. Use `--input-csv` para apontar
+outro local do CSV e `--test-size`, `--valid-size` ou `--seed` para mudar o split.
+
+## Usar um modelo já treinado
+
+Após o fine-tuning, classifique uma notícia sem treinar novamente:
+
+```bash
+python scripts/classificar_noticia.py \
+  --adapters-dir models/adapters-fakebr-v1 \
+  --texto "Texto da notícia que será classificada."
+```
+
+O comando imprime somente `FALSA`, `VERDADEIRA` ou `INDEFINIDO`. Para um texto
+longo, use `--arquivo caminho/da/noticia.txt` em vez de `--texto`.
+
+## Verificar uma notícia por link
+
+O comando abaixo extrai o texto da página, busca evidências na web e envia notícia
++ evidências ao seu modelo fine-tunado, devolvendo o veredito e as fontes encontradas:
+
+```bash
+python scripts/verificar_link.py "https://exemplo.com/noticia" \
+  --adapters-dir models/adapters-fakebr-v1 \
+  --output results/verificacao_link.json
+```
+
+O modelo usado é o Qwen-base com seu adaptador LoRA. O adaptador atual foi treinado
+somente com rótulos Fake.br, então ainda não aprendeu a justificar vereditos com
+fontes: as evidências retornadas servem para revisão humana. Para transformar isso
+em checagem fundamentada, o próximo fine-tuning precisa de exemplos com alegação,
+evidências e veredito esperado.
+
+Cada verificação também cria uma run no experimento `fakebr-verificacao` do
+MLflow, com URL, modelo, veredito, quantidade de fontes recuperadas e o relatório
+JSON como artefato. Métricas de acurácia e F1 exigem um gabarito e por isso são
+calculadas apenas na avaliação do Fake.br.
