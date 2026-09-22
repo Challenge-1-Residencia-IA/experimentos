@@ -1,0 +1,743 @@
+{
+  "extracao": {
+    "total_casos": 20,
+    "total_afirmacoes_esperadas": 20,
+    "total_afirmacoes_extraidas": 20,
+    "afirmacoes_corretamente_identificadas": 7,
+    "taxa_identificacao_correta": 0.35,
+    "detalhes": [
+      {
+        "id": 1,
+        "afirmacao_esperada": "“A mistura de água morna, limão, cúrcuma e sal desativa a diabetes em 7 dias.”",
+        "afirmacoes_extraidas": [
+          "O texto diz que médicos não divulgam isso porque o tratamento convencional dá lucro."
+        ],
+        "melhor_match": "",
+        "similaridade": 0.0,
+        "identificacao_correta": false
+      },
+      {
+        "id": 2,
+        "afirmacao_esperada": "“A vacina contra a gripe causa gripe porque contém vírus capaz de provocar a doença.”",
+        "afirmacoes_extraidas": [
+          "Estão escondendo isso: a vacina contra a gripe faz a pessoa pegar gripe imediatamente porque contém o vírus da gripe. Por isso tanta gente fica doente depois de se vacinar. O governo sabe, mas não avisa para não perder a campanha."
+        ],
+        "melhor_match": "Estão escondendo isso: a vacina contra a gripe faz a pessoa pegar gripe imediatamente porque contém o vírus da gripe. Por isso tanta gente fica doente depois de se vacinar. O governo sabe, mas não avisa para não perder a campanha.",
+        "similaridade": 0.216,
+        "identificacao_correta": false
+      },
+      {
+        "id": 3,
+        "afirmacao_esperada": "“A Lua ficará invisível/desaparecerá por 48 horas devido a uma alteração temporária de sua órbita.”",
+        "afirmacoes_extraidas": [
+          "NASA confirma: a Lua vai “desaparecer” durante 48 horas no próximo mês. Isso acontecerá porque sua órbita sofrerá uma alteração temporária causada pelo alinhamento de planetas. O autor recomenda não olhar para o céu durante o fenômeno."
+        ],
+        "melhor_match": "NASA confirma: a Lua vai “desaparecer” durante 48 horas no próximo mês. Isso acontecerá porque sua órbita sofrerá uma alteração temporária causada pelo alinhamento de planetas. O autor recomenda não olhar para o céu durante o fenômeno.",
+        "similaridade": 0.256,
+        "identificacao_correta": true
+      },
+      {
+        "id": 4,
+        "afirmacao_esperada": "“Dormir exatamente 4 horas por noite aumenta a inteligência em 50%, segundo um estudo de Harvard.”",
+        "afirmacoes_extraidas": [
+          "O texto afirma que pesquisadores acompanharam milhares de adultos, mas não apresenta DOI nem identifica o estudo original."
+        ],
+        "melhor_match": "O texto afirma que pesquisadores acompanharam milhares de adultos, mas não apresenta DOI nem identifica o estudo original.",
+        "similaridade": 0.065,
+        "identificacao_correta": false
+      },
+      {
+        "id": 5,
+        "afirmacao_esperada": "A água pura ferve a aproximadamente 100 °C ao nível do mar sob pressão atmosférica padrão.",
+        "afirmacoes_extraidas": [
+          "A água entra em ebulição a 100 ºC."
+        ],
+        "melhor_match": "A água entra em ebulição a 100 ºC.",
+        "similaridade": 0.158,
+        "identificacao_correta": false
+      },
+      {
+        "id": 6,
+        "afirmacao_esperada": "O Brasil possui 26 estados e o Distrito Federal, totalizando 27 unidades federativas.",
+        "afirmacoes_extraidas": [
+          "O Brasil é uma federação formada por 26 estados e pelo Distrito Federal. Portanto, dizer que o país tem 27 unidades federativas é diferente de dizer que tem 27 estados."
+        ],
+        "melhor_match": "O Brasil é uma federação formada por 26 estados e pelo Distrito Federal. Portanto, dizer que o país tem 27 unidades federativas é diferente de dizer que tem 27 estados.",
+        "similaridade": 0.4,
+        "identificacao_correta": true
+      },
+      {
+        "id": 7,
+        "afirmacao_esperada": "A luz solar leva aproximadamente 8 minutos e 20 segundos para chegar à Terra.",
+        "afirmacoes_extraidas": [
+          "A luz emitida pelo Sol leva cerca de 8 minutos e 20 segundos para alcançar a Terra. Ao observar o Sol, vemos a luz que saiu de sua superfície alguns minutos antes, e não uma imagem instantânea."
+        ],
+        "melhor_match": "A luz emitida pelo Sol leva cerca de 8 minutos e 20 segundos para alcançar a Terra. Ao observar o Sol, vemos a luz que saiu de sua superfície alguns minutos antes, e não uma imagem instantânea.",
+        "similaridade": 0.294,
+        "identificacao_correta": true
+      },
+      {
+        "id": 8,
+        "afirmacao_esperada": "A fotossíntese converte energia luminosa em energia química armazenada em moléculas orgânicas.",
+        "afirmacoes_extraidas": [
+          "A formulação “plantas transformam luz em energia química” é uma simplificação."
+        ],
+        "melhor_match": "A formulação “plantas transformam luz em energia química” é uma simplificação.",
+        "similaridade": 0.235,
+        "identificacao_correta": false
+      },
+      {
+        "id": 9,
+        "afirmacao_esperada": "A foto mostra uma praia lotada e comprova um recorde histórico de turistas no período mencionado.",
+        "afirmacoes_extraidas": [
+          "Essa foto mostra a praia completamente lotada e prova que o município bateu recorde histórico de turistas neste fim de semana."
+        ],
+        "melhor_match": "Essa foto mostra a praia completamente lotada e prova que o município bateu recorde histórico de turistas neste fim de semana.",
+        "similaridade": 0.385,
+        "identificacao_correta": true
+      },
+      {
+        "id": 10,
+        "afirmacao_esperada": "O vídeo mostra uma manifestação relacionada à decisão anunciada hoje.",
+        "afirmacoes_extraidas": [
+          "O vídeo mostra uma multidão, mas não informa cidade, data ou evento. Nos comentários, usuários afirmam que foi gravado ontem."
+        ],
+        "melhor_match": "O vídeo mostra uma multidão, mas não informa cidade, data ou evento. Nos comentários, usuários afirmam que foi gravado ontem.",
+        "similaridade": 0.154,
+        "identificacao_correta": false
+      },
+      {
+        "id": 11,
+        "afirmacao_esperada": "O desemprego dobrou entre os dois pontos apresentados.",
+        "afirmacoes_extraidas": [
+          "O gráfico mostra 12% em um ponto e 6% em outro, e a publicação conclui que o desemprego aumentou 100%. Porém, os pontos correspondem a períodos diferentes e a legenda não deixa claro se são taxas mensais, trimestrais ou anuais."
+        ],
+        "melhor_match": "O gráfico mostra 12% em um ponto e 6% em outro, e a publicação conclui que o desemprego aumentou 100%. Porém, os pontos correspondem a períodos diferentes e a legenda não deixa claro se são taxas mensais, trimestrais ou anuais.",
+        "similaridade": 0.105,
+        "identificacao_correta": false
+      },
+      {
+        "id": 12,
+        "afirmacao_esperada": "A lei descrita na matéria foi aprovada ou entrou em vigor agora.",
+        "afirmacoes_extraidas": [
+          "O post atual não informa a data original e apresenta o conteúdo como novidade."
+        ],
+        "melhor_match": "O post atual não informa a data original e apresenta o conteúdo como novidade.",
+        "similaridade": 0.042,
+        "identificacao_correta": false
+      },
+      {
+        "id": 13,
+        "afirmacao_esperada": "O ensino presencial é melhor do que o remoto, de forma geral.",
+        "afirmacoes_extraidas": [
+          "Crianças aprendem mais quando estão fisicamente na escola e qualquer pesquisa séria mostra isso. Quem discorda está ignorando a realidade."
+        ],
+        "melhor_match": "",
+        "similaridade": 0.0,
+        "identificacao_correta": false
+      },
+      {
+        "id": 14,
+        "afirmacao_esperada": "O filme é objetivamente o melhor lançamento do ano.",
+        "afirmacoes_extraidas": [
+          "O roteiro é superior a todos os outros, os atores são impecáveis e qualquer pessoa que entenda de cinema vai concordar. Não há necessidade de olhar avaliações diferentes."
+        ],
+        "melhor_match": "O roteiro é superior a todos os outros, os atores são impecáveis e qualquer pessoa que entenda de cinema vai concordar. Não há necessidade de olhar avaliações diferentes.",
+        "similaridade": 0.062,
+        "identificacao_correta": false
+      },
+      {
+        "id": 15,
+        "afirmacao_esperada": "Uma semana de trabalho de quatro dias aumenta a produtividade de qualquer equipe.",
+        "afirmacoes_extraidas": [
+          "Trabalho de quatro dias por semana sempre aumenta a produtividade. Na minha empresa funcionou muito bem, então está provado que reduzir a jornada melhora qualquer equipe. Empresas que mantêm cinco dias estão simplesmente atrasadas."
+        ],
+        "melhor_match": "Trabalho de quatro dias por semana sempre aumenta a produtividade. Na minha empresa funcionou muito bem, então está provado que reduzir a jornada melhora qualquer equipe. Empresas que mantêm cinco dias estão simplesmente atrasadas.",
+        "similaridade": 0.312,
+        "identificacao_correta": true
+      },
+      {
+        "id": 16,
+        "afirmacao_esperada": "A política é a forma mais justa de resolver o problema.",
+        "afirmacoes_extraidas": [
+          "Para mim, esta política pública é a forma mais justa de resolver o problema. Ela prioriza quem realmente precisa e, por isso, qualquer pessoa razoável deveria apoiá-la. Os números provam que é a solução mais justa."
+        ],
+        "melhor_match": "Para mim, esta política pública é a forma mais justa de resolver o problema. Ela prioriza quem realmente precisa e, por isso, qualquer pessoa razoável deveria apoiá-la. Os números provam que é a solução mais justa.",
+        "similaridade": 0.303,
+        "identificacao_correta": true
+      },
+      {
+        "id": 17,
+        "afirmacao_esperada": "A tecnologia converte boletos em pizzas e será liberada amanhã.",
+        "afirmacoes_extraidas": [
+          "O protótipo usa inteligência artificial para converter contas atrasadas em jantar, e o governo deve liberar a tecnologia amanhã."
+        ],
+        "melhor_match": "O protótipo usa inteligência artificial para converter contas atrasadas em jantar, e o governo deve liberar a tecnologia amanhã.",
+        "similaridade": 0.217,
+        "identificacao_correta": false
+      },
+      {
+        "id": 18,
+        "afirmacao_esperada": "A prefeitura instalará Wi‑Fi gratuito na Lua.",
+        "afirmacoes_extraidas": [
+          "Prefeitura anuncia oficialmente Wi-Fi gratuito na Lua para incentivar o turismo espacial."
+        ],
+        "melhor_match": "Prefeitura anuncia oficialmente Wi-Fi gratuito na Lua para incentivar o turismo espacial.",
+        "similaridade": 0.4,
+        "identificacao_correta": true
+      },
+      {
+        "id": 19,
+        "afirmacao_esperada": "A segunda-feira foi oficialmente cancelada por decreto.",
+        "afirmacoes_extraidas": [
+          "Especialistas afirmam que a semana de quatro dias úteis foi considerada insuficiente e que o próximo passo será abolir as reuniões de segunda-feira."
+        ],
+        "melhor_match": "Especialistas afirmam que a semana de quatro dias úteis foi considerada insuficiente e que o próximo passo será abolir as reuniões de segunda-feira.",
+        "similaridade": 0.154,
+        "identificacao_correta": false
+      },
+      {
+        "id": 20,
+        "afirmacao_esperada": "O café das 3h da manhã aumenta em 900% a capacidade de entender reuniões.",
+        "afirmacoes_extraidas": [
+          "Os pesquisadores teriam observado aumento de 900% na capacidade de interpretar apresentações com 80 slides."
+        ],
+        "melhor_match": "Os pesquisadores teriam observado aumento de 900% na capacidade de interpretar apresentações com 80 slides.",
+        "similaridade": 0.12,
+        "identificacao_correta": false
+      }
+    ]
+  },
+  "recuperacao": {
+    "total_casos": 20,
+    "total_fontes_recuperadas": 60,
+    "fontes_alta_qualidade": 6,
+    "fontes_baixa_qualidade_ou_ruido": 3,
+    "qualidade_fontes_score": 0.1,
+    "casos_sem_evidencia": 0,
+    "respostas_assertivas_sem_evidencia": 0,
+    "taxa_respostas_sem_evidencia": 0.0,
+    "detalhes": [
+      {
+        "id": 1,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 2,
+        "total_fontes": 3,
+        "fontes_confiaveis": 1,
+        "sem_evidencia": false,
+        "score_qualidade": 0.333,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 3,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 4,
+        "total_fontes": 3,
+        "fontes_confiaveis": 1,
+        "sem_evidencia": false,
+        "score_qualidade": 0.333,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 5,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 6,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 7,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 8,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 9,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 10,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 11,
+        "total_fontes": 3,
+        "fontes_confiaveis": 1,
+        "sem_evidencia": false,
+        "score_qualidade": 0.333,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 12,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 13,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 14,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 15,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 16,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 17,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 18,
+        "total_fontes": 3,
+        "fontes_confiaveis": 2,
+        "sem_evidencia": false,
+        "score_qualidade": 0.667,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 19,
+        "total_fontes": 3,
+        "fontes_confiaveis": 1,
+        "sem_evidencia": false,
+        "score_qualidade": 0.333,
+        "emitiu_sem_evidencia": false
+      },
+      {
+        "id": 20,
+        "total_fontes": 3,
+        "fontes_confiaveis": 0,
+        "sem_evidencia": false,
+        "score_qualidade": 0.0,
+        "emitiu_sem_evidencia": false
+      }
+    ]
+  },
+  "divergencia": {
+    "total_casos": 20,
+    "true_positives_divergencia": 11,
+    "false_positives_divergencia": 5,
+    "false_negatives_divergencia": 1,
+    "true_negatives_divergencia": 3,
+    "precisao_identificacao_divergencias": 0.6875,
+    "recall_divergencias": 0.9167,
+    "f1_divergencias": 0.7857,
+    "detalhes": [
+      {
+        "id": 1,
+        "detectou_divergencia": true,
+        "esperava_divergencia": true,
+        "status": "TP (Divergência correta)"
+      },
+      {
+        "id": 2,
+        "detectou_divergencia": true,
+        "esperava_divergencia": true,
+        "status": "TP (Divergência correta)"
+      },
+      {
+        "id": 3,
+        "detectou_divergencia": true,
+        "esperava_divergencia": true,
+        "status": "TP (Divergência correta)"
+      },
+      {
+        "id": 4,
+        "detectou_divergencia": true,
+        "esperava_divergencia": true,
+        "status": "TP (Divergência correta)"
+      },
+      {
+        "id": 5,
+        "detectou_divergencia": false,
+        "esperava_divergencia": false,
+        "status": "TN (Concordância correta)"
+      },
+      {
+        "id": 6,
+        "detectou_divergencia": true,
+        "esperava_divergencia": false,
+        "status": "FP (Falso alarme de divergência)"
+      },
+      {
+        "id": 7,
+        "detectou_divergencia": false,
+        "esperava_divergencia": false,
+        "status": "TN (Concordância correta)"
+      },
+      {
+        "id": 8,
+        "detectou_divergencia": false,
+        "esperava_divergencia": false,
+        "status": "TN (Concordância correta)"
+      },
+      {
+        "id": 9,
+        "detectou_divergencia": false,
+        "esperava_divergencia": true,
+        "status": "FN (Divergência não detectada)"
+      },
+      {
+        "id": 10,
+        "detectou_divergencia": true,
+        "esperava_divergencia": true,
+        "status": "TP (Divergência correta)"
+      },
+      {
+        "id": 11,
+        "detectou_divergencia": true,
+        "esperava_divergencia": true,
+        "status": "TP (Divergência correta)"
+      },
+      {
+        "id": 12,
+        "detectou_divergencia": true,
+        "esperava_divergencia": true,
+        "status": "TP (Divergência correta)"
+      },
+      {
+        "id": 13,
+        "detectou_divergencia": true,
+        "esperava_divergencia": false,
+        "status": "FP (Falso alarme de divergência)"
+      },
+      {
+        "id": 14,
+        "detectou_divergencia": true,
+        "esperava_divergencia": false,
+        "status": "FP (Falso alarme de divergência)"
+      },
+      {
+        "id": 15,
+        "detectou_divergencia": true,
+        "esperava_divergencia": false,
+        "status": "FP (Falso alarme de divergência)"
+      },
+      {
+        "id": 16,
+        "detectou_divergencia": true,
+        "esperava_divergencia": false,
+        "status": "FP (Falso alarme de divergência)"
+      },
+      {
+        "id": 17,
+        "detectou_divergencia": true,
+        "esperava_divergencia": true,
+        "status": "TP (Divergência correta)"
+      },
+      {
+        "id": 18,
+        "detectou_divergencia": true,
+        "esperava_divergencia": true,
+        "status": "TP (Divergência correta)"
+      },
+      {
+        "id": 19,
+        "detectou_divergencia": true,
+        "esperava_divergencia": true,
+        "status": "TP (Divergência correta)"
+      },
+      {
+        "id": 20,
+        "detectou_divergencia": true,
+        "esperava_divergencia": true,
+        "status": "TP (Divergência correta)"
+      }
+    ]
+  },
+  "geracao": {
+    "total_justificativas_avaliadas": 20,
+    "total_afirmacoes_sintetizadas": 20,
+    "afirmacoes_suportadas_evidencia": 0,
+    "afirmacoes_alucinadas": 20,
+    "taxa_alucinacao": 1.0,
+    "detalhes": [
+      {
+        "id": 1,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 2,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 3,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 4,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 5,
+        "justificativa": "CLASSIFICAÇÃO: VERDADEIRA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 6,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 7,
+        "justificativa": "CLASSIFICAÇÃO: VERDADEIRA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 8,
+        "justificativa": "CLASSIFICAÇÃO: VERDADEIRA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 9,
+        "justificativa": "CLASSIFICAÇÃO: VERDADEIRA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 10,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 11,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 12,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 13,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 14,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 15,
+        "justificativa": "CLASSIFICAÇÃO: SÁTIRA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 16,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 17,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 18,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 19,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      },
+      {
+        "id": 20,
+        "justificativa": "CLASSIFICAÇÃO: FALSA",
+        "total_frases": 1,
+        "frases_alucinadas": 1,
+        "taxa_caso": 1.0
+      }
+    ]
+  },
+  "classificacao": {
+    "total_amostras": 20,
+    "acuracia_global": 0.35,
+    "precisao_macro": 0.2033,
+    "recall_macro": 0.35,
+    "f1_score_macro": 0.2342,
+    "precisao_weighted": 0.2033,
+    "recall_weighted": 0.35,
+    "f1_score_weighted": 0.2342,
+    "por_classe": {
+      "FALSA": {
+        "precisao": 0.2667,
+        "recall": 1.0,
+        "f1_score": 0.4211,
+        "suporte": 4
+      },
+      "VERDADEIRA": {
+        "precisao": 0.75,
+        "recall": 0.75,
+        "f1_score": 0.75,
+        "suporte": 4
+      },
+      "FORA DE CONTEXTO": {
+        "precisao": 0.0,
+        "recall": 0.0,
+        "f1_score": 0.0,
+        "suporte": 4
+      },
+      "OPINIÃO": {
+        "precisao": 0.0,
+        "recall": 0.0,
+        "f1_score": 0.0,
+        "suporte": 4
+      },
+      "SÁTIRA": {
+        "precisao": 0.0,
+        "recall": 0.0,
+        "f1_score": 0.0,
+        "suporte": 4
+      }
+    },
+    "matriz_confusao": {
+      "FALSA": {
+        "FALSA": 4,
+        "VERDADEIRA": 0,
+        "FORA DE CONTEXTO": 0,
+        "OPINIÃO": 0,
+        "SÁTIRA": 0
+      },
+      "VERDADEIRA": {
+        "FALSA": 1,
+        "VERDADEIRA": 3,
+        "FORA DE CONTEXTO": 0,
+        "OPINIÃO": 0,
+        "SÁTIRA": 0
+      },
+      "FORA DE CONTEXTO": {
+        "FALSA": 3,
+        "VERDADEIRA": 1,
+        "FORA DE CONTEXTO": 0,
+        "OPINIÃO": 0,
+        "SÁTIRA": 0
+      },
+      "OPINIÃO": {
+        "FALSA": 3,
+        "VERDADEIRA": 0,
+        "FORA DE CONTEXTO": 0,
+        "OPINIÃO": 0,
+        "SÁTIRA": 1
+      },
+      "SÁTIRA": {
+        "FALSA": 4,
+        "VERDADEIRA": 0,
+        "FORA DE CONTEXTO": 0,
+        "OPINIÃO": 0,
+        "SÁTIRA": 0
+      }
+    }
+  }
+}

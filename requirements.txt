@@ -7,3 +7,6 @@ requests
 scikit-learn
 huggingface_hub
 python-dotenv
+rich
+matplotlib
+seaborn

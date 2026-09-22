@@ -30,3 +30,28 @@ Datasets de teste usados na avaliação ficam fora do Git — baixe da fonte ori
 ## Resultados
 
 Cada rodada de avaliação salva um resultado versionado em `results/` (ex.: `resultados_v1.json`), para permitir comparar prompts/modelos ao longo do tempo — ver metodologia em `Documentacao/docs/metricas-e-avaliacao.md`.
+
+## Execução reproduzível
+
+Todos os scripts aceitam caminhos explícitos e usam a raiz deste repositório como padrão.
+
+```bash
+# 1. Preparar dados de extração (espera as pastas fake/ e true/)
+python scripts/preparar_dataset.py --dataset-path data/raw/full_texts
+
+# 2. Treinar o adaptador LoRA
+python scripts/treinar_visual.py --data-dir data/processed --adapters-dir models/adapters
+
+# 3. Avaliar predições já produzidas e gerar o relatório canônico
+python scripts/metricas_tecnicas.py \
+  --predictions_file results/Sprint_1_Resultados_Modelo_Treinado.xlsx \
+  --output_json results/relatorio_metricas_tecnicas.json
+
+# 4. Gerar o dashboard a partir do mesmo relatório
+python scripts/gerar_dashboard.py \
+  --input-json results/relatorio_metricas_tecnicas.json
+```
+
+O arquivo de predições precisa conter as colunas listadas no avaliador, incluindo
+`Divergencia_Esperada`. A coluna opcional `Resposta_Conclusiva` permite medir
+corretamente respostas assertivas emitidas sem evidência.
