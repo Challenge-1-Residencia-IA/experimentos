@@ -11,12 +11,14 @@ from urllib.parse import urlparse
 import mlflow
 import requests
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 
 from amostrar_e_verificar import (
     buscar_evidencias,
     formatar_evidencias,
 )
 from evidencias_utils import montar_prompt_evidencias, validar_resposta
+from ui_terminal import cabecalho, console, painel_veredito, tabela_fontes
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -160,10 +162,18 @@ def configurar_mlflow(tracking_uri: str, experiment_name: str) -> None:
 
 
 def main(args: argparse.Namespace) -> None:
-    print("Baixando e extraindo a notícia...", flush=True)
+    if args.visual:
+        cabecalho("Verificação de notícia por link", f"Adaptador: {args.adapters_dir.name}")
+        console.print("[cyan]1/4[/cyan] Extraindo conteúdo da página...")
+    if not args.visual:
+        print("Baixando e extraindo a notícia...", flush=True)
     titulo, texto = extrair_texto(args.url, args.timeout, args.max_chars)
     alegacao = extrair_alegacao(titulo, texto, args.max_claim_chars)
-    print("Pesquisando evidências na web...", flush=True)
+    if args.visual:
+        console.print(f"[bold]Alegação analisada:[/bold] {alegacao}")
+        console.print("[cyan]2/4[/cyan] Buscando fontes independentes...")
+    if not args.visual:
+        print("Pesquisando evidências na web...", flush=True)
     consulta = alegacao
     fontes_brutas = buscar_evidencias(consulta, args.max_resultados * 3)
     fontes = filtrar_fontes(fontes_brutas, args.url)[:args.max_resultados]
@@ -176,7 +186,10 @@ def main(args: argparse.Namespace) -> None:
             "fontes_usadas": [],
         }, ensure_ascii=False)
     else:
-        print("Carregando o modelo fine-tunado e gerando veredito...", flush=True)
+        if args.visual:
+            console.print("[cyan]3/4[/cyan] Carregando adaptador e gerando veredito...")
+        if not args.visual:
+            print("Carregando o modelo fine-tunado e gerando veredito...", flush=True)
         from mlx_lm import generate, load
 
         modelo, tokenizer = load(args.model, adapter_path=str(args.adapters_dir))
@@ -227,15 +240,31 @@ def main(args: argparse.Namespace) -> None:
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(texto_saida, encoding="utf-8")
-        print(f"Resultado salvo em: {args.output}")
+        if args.visual:
+            console.print(f"[green]✓[/green] Relatório JSON salvo em: {args.output}")
+        else:
+            print(f"Resultado salvo em: {args.output}")
     else:
         print(texto_saida)
+    if args.visual:
+        console.print("[cyan]4/4[/cyan] Verificação concluída.")
+        painel_veredito(
+            resultado["veredito_modelo_fine_tunado"],
+            resultado["justificativa"],
+            titulo="Veredito com evidências",
+        )
+        tabela_fontes(fontes, verificacao["fontes_usadas"])
+        console.print(
+            f"[dim]JSON válido: {'sim' if verificacao['json_valido'] else 'não'} | "
+            f"Citações válidas: {'sim' if verificacao['citacoes_validas'] else 'não'}[/dim]"
+        )
 
 
 if __name__ == "__main__":
+    load_dotenv(ROOT_DIR / ".env")
     parser = argparse.ArgumentParser(description="Extrai uma notícia por URL e a verifica com evidências web.")
     parser.add_argument("url", help="URL pública da notícia.")
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--model", default=os.environ.get("HF_MODEL_REPO") or DEFAULT_MODEL)
     parser.add_argument("--adapters-dir", type=Path, default=DEFAULT_ADAPTERS)
     parser.add_argument("--max-resultados", type=int, default=5)
     parser.add_argument("--max-chars", type=int, default=12000)
@@ -244,6 +273,7 @@ if __name__ == "__main__":
     parser.add_argument("--min-fontes-independentes", type=int, default=1)
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--output", type=Path, help="Salva o relatório JSON neste caminho.")
+    parser.add_argument("--visual", action="store_true", help="Mostra painel, etapas e fontes no terminal.")
     parser.add_argument("--experiment-name", default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "fakebr-verificacao")
     parser.add_argument("--tracking-uri", default=os.environ.get("MLFLOW_TRACKING_URI") or arquivo_uri(ROOT_DIR / "mlflow.db"))
     args = parser.parse_args()

@@ -8,13 +8,16 @@ import random
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
+from urllib.parse import urlsplit
+
+from sklearn.model_selection import StratifiedGroupKFold
 
 from evidencias_utils import PROMPT_SISTEMA_EVIDENCIAS, montar_mensagens_evidencias
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT_DIR / "raw/factckbr/FACTCKBR.tsv"
-DEFAULT_OUTPUT = ROOT_DIR / "data/evidencias"
+DEFAULT_OUTPUT = ROOT_DIR / "data/evidencias-por-url-v1"
 
 PROMPT_SISTEMA = PROMPT_SISTEMA_EVIDENCIAS
 
@@ -70,7 +73,8 @@ def carregar_fonte(
     max_evidence_chars: int,
     min_evidence_chars: int,
 ) -> list[dict]:
-    vistos, registros = set(), []
+    vistos: set[str] = set()
+    registros: list[dict] = []
     with caminho.open(encoding="utf-8") as arquivo:
         for linha in csv.DictReader(arquivo, delimiter="\t"):
             claim = limitar(linha.get("claimReviewed", ""), max_claim_chars)
@@ -81,11 +85,13 @@ def carregar_fonte(
             chave = normalizar(claim)
             palavras_claim = set(normalizar(claim).split())
             palavras_evidencia = set(normalizar(evidencia).split())
-            sobreposicao = (
-                len(palavras_claim & palavras_evidencia) / len(palavras_claim)
-                if palavras_claim else 1.0
-            )
-            evidencia_repete_claim = sobreposicao > 0.8 and len(evidencia) < max(250, len(claim) * 2)
+            if palavras_claim:
+                sobreposicao = len(palavras_claim & palavras_evidencia) / len(palavras_claim)
+                evidencia_repete_claim = (
+                    sobreposicao > 0.8 and len(evidencia) < max(250, len(claim) * 2)
+                )
+            else:
+                evidencia_repete_claim = True
             if (
                 not rotulo
                 or not claim
@@ -110,21 +116,40 @@ def carregar_fonte(
     return registros
 
 
+def grupo_url(url: str) -> str:
+    """Agrupa variantes da mesma URL de checagem, ignorando query e fragmento."""
+    partes = urlsplit(url.strip())
+    host = (partes.hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return f"{host}{partes.path.rstrip('/')}"
+
+
 def separar(registros: list[dict], seed: int) -> dict[str, list[dict]]:
-    por_rotulo = defaultdict(list)
-    for registro in registros:
-        por_rotulo[registro["label"]].append(registro)
-    rng = random.Random(seed)
-    splits = {"train": [], "valid": [], "test": []}
-    for itens in por_rotulo.values():
-        rng.shuffle(itens)
-        n = len(itens)
-        n_test = max(1, round(n * 0.15))
-        n_valid = max(1, round(n * 0.15))
-        splits["test"].extend(itens[:n_test])
-        splits["valid"].extend(itens[n_test : n_test + n_valid])
-        splits["train"].extend(itens[n_test + n_valid :])
-    return splits
+    """Reserva dois folds por URL para validacao e teste (aprox. 14% cada)."""
+    grupos = [grupo_url(registro["url"]) for registro in registros]
+    if len(set(grupos)) < 7:
+        raise ValueError("Sao necessarias pelo menos sete URLs distintas para criar os splits.")
+    divisor = StratifiedGroupKFold(n_splits=7, shuffle=True, random_state=seed)
+    folds = [
+        indices
+        for _, indices in divisor.split(
+            registros,
+            [registro["label"] for registro in registros],
+            grupos,
+        )
+    ]
+    indices_test = set(folds[0])
+    indices_valid = set(folds[1])
+    return {
+        "train": [
+            registro
+            for indice, registro in enumerate(registros)
+            if indice not in indices_test and indice not in indices_valid
+        ],
+        "valid": [registros[i] for i in folds[1]],
+        "test": [registros[i] for i in folds[0]],
+    }
 
 
 def adicionar_inconclusivas_sem_evidencia(registros: list[dict], seed: int, quantidade: int) -> list[dict]:
@@ -161,7 +186,7 @@ def balancear_treino(
     tamanhos = [len(itens) for itens in por_rotulo.values() if itens]
     if not tamanhos:
         return []
-    alvo = (tamanho_alvo or max(tamanhos)) if estrategia == "oversample" else min(tamanhos)
+    alvo = max(tamanho_alvo or 0, max(tamanhos)) if estrategia == "oversample" else min(tamanhos)
     saida = []
     for itens in por_rotulo.values():
         if len(itens) >= alvo:
@@ -194,9 +219,75 @@ def mensagens(registro: dict, max_justification_chars: int) -> dict:
 
 
 def salvar_jsonl(registros: list[dict], caminho: Path, max_justification_chars: int) -> None:
+    """Salva os exemplos no formato de conversas aceito pelo MLX-LM."""
     with caminho.open("w", encoding="utf-8") as arquivo:
         for registro in registros:
             arquivo.write(json.dumps(mensagens(registro, max_justification_chars), ensure_ascii=False) + "\n")
+
+
+def criar_metadados(
+    splits_originais: dict[str, list[dict]],
+    splits_finais: dict[str, list[dict]],
+    seed: int,
+    estrategia_balanceamento: str,
+    tamanho_alvo: int,
+    total_registros: int,
+) -> dict:
+    """Resume a origem, os splits e as transformações aplicadas aos dados."""
+    contagens_originais = {
+        nome: {
+            "total": len(itens),
+            "labels": dict(Counter(item["label"] for item in itens)),
+        }
+        for nome, itens in splits_originais.items()
+    }
+    contagens_finais = {}
+    for nome, itens in splits_finais.items():
+        contagens_finais[nome] = {
+            "total": len(itens),
+            "labels": dict(Counter(item["label"] for item in itens)),
+            "synthetic_inconclusive": sum(item["synthetic"] for item in itens),
+            "unique_source_urls": len({grupo_url(item["url"]) for item in itens if item["url"]}),
+        }
+
+    labels_treino = Counter(item["label"] for item in splits_finais["train"])
+    return {
+        "source": "FACTCK.BR",
+        "source_url": "https://github.com/jghm-f/FACTCK.BR",
+        "license": "MIT",
+        "seed": seed,
+        "split_method": (
+            "StratifiedGroupKFold por URL normalizada; folds 0 e 1 "
+            "reservados para teste e validacao"
+        ),
+        "split_fractions_approx": {"train": 5 / 7, "valid": 1 / 7, "test": 1 / 7},
+        "source_records_after_quality_filter": total_registros,
+        "splits_before_train_augmentation": contagens_originais,
+        "labels": ["FALSA", "VERDADEIRA", "FORA_DE_CONTEXTO", "INCONCLUSIVA"],
+        "balance_strategy_train_only": estrategia_balanceamento,
+        "balance_target_requested": tamanho_alvo,
+        "balance_target_per_class": max(labels_treino.values(), default=0)
+        if estrategia_balanceamento != "none"
+        else None,
+        "splits": contagens_finais,
+        "limitations": [
+            "A evidência é o texto da checagem jornalística, não necessariamente uma fonte primária.",
+            "Casos INCONCLUSIVA derivados ensinam abstinência quando nenhuma evidência é fornecida.",
+            "Os rótulos originais foram normalizados para quatro classes.",
+            "Apenas o treino pode conter oversampling e casos inconclusivos sinteticos.",
+        ],
+    }
+
+
+def salvar_splits(splits: dict[str, list[dict]], output_dir: Path, max_justification_chars: int) -> None:
+    """Escreve exemplos de treino e arquivos de auditoria para cada split."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for nome, itens in splits.items():
+        salvar_jsonl(itens, output_dir / f"{nome}.jsonl", max_justification_chars)
+        caminho_auditoria = output_dir / f"{nome}_audit.jsonl"
+        with caminho_auditoria.open("w", encoding="utf-8") as arquivo:
+            for item in itens:
+                arquivo.write(json.dumps(item, ensure_ascii=False) + "\n")
 
 
 def main(args: argparse.Namespace) -> None:
@@ -209,6 +300,7 @@ def main(args: argparse.Namespace) -> None:
         args.min_evidence_chars,
     )
     splits = separar(registros, args.seed)
+    splits_originais = {nome: list(itens) for nome, itens in splits.items()}
     if args.synthetic_inconclusive > 0:
         splits["train"] = adicionar_inconclusivas_sem_evidencia(
             splits["train"], args.seed + 10, args.synthetic_inconclusive
@@ -218,36 +310,15 @@ def main(args: argparse.Namespace) -> None:
     )
     for indice, nome in enumerate(splits):
         random.Random(args.seed + indice).shuffle(splits[nome])
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    for nome, itens in splits.items():
-        salvar_jsonl(itens, args.output_dir / f"{nome}.jsonl", args.max_justification_chars)
-        with (args.output_dir / f"{nome}_audit.jsonl").open("w", encoding="utf-8") as arquivo:
-            for item in itens:
-                arquivo.write(json.dumps(item, ensure_ascii=False) + "\n")
-    metadados = {
-        "source": "FACTCK.BR",
-        "source_url": "https://github.com/jghm-f/FACTCK.BR",
-        "license": "MIT",
-        "seed": args.seed,
-        "source_records_after_quality_filter": len(registros),
-        "labels": ["FALSA", "VERDADEIRA", "FORA_DE_CONTEXTO", "INCONCLUSIVA"],
-        "balance_strategy_train_only": args.balance_strategy,
-        "balance_target_per_class": args.balance_target,
-        "splits": {
-            nome: {
-                "total": len(itens),
-                "labels": dict(Counter(i["label"] for i in itens)),
-                "synthetic_inconclusive": sum(i["synthetic"] for i in itens),
-            }
-            for nome, itens in splits.items()
-        },
-        "limitations": [
-            "A evidência é o texto da checagem jornalística, não necessariamente uma fonte primária.",
-            "Casos INCONCLUSIVA derivados ensinam abstinência quando nenhuma evidência é fornecida.",
-            "Os rótulos originais foram normalizados para quatro classes.",
-            "Apenas o treino pode conter oversampling e casos inconclusivos sinteticos.",
-        ],
-    }
+    salvar_splits(splits, args.output_dir, args.max_justification_chars)
+    metadados = criar_metadados(
+        splits_originais,
+        splits,
+        args.seed,
+        args.balance_strategy,
+        args.balance_target,
+        len(registros),
+    )
     (args.output_dir / "metadata.json").write_text(json.dumps(metadados, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(metadados["splits"], ensure_ascii=False, indent=2))
 

@@ -2,11 +2,14 @@
 """Classifica uma notícia com um adaptador LoRA já treinado."""
 
 import argparse
+import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from mlx_lm import generate, load
 
 from preparar_fakebr import PROMPT_SISTEMA
+from ui_terminal import cabecalho, console, painel_veredito
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -38,16 +41,25 @@ def main(args: argparse.Namespace) -> None:
         raise FileNotFoundError(f"Adaptador não encontrado em '{args.adapters_dir}'.")
 
     texto = args.texto or args.arquivo.read_text(encoding="utf-8")
+    if args.visual:
+        cabecalho("Classificação de notícia", f"Adaptador: {args.adapters_dir.name}")
+        console.print(f"[dim]Analisando {len(texto):,} caracteres...[/dim]")
     modelo, tokenizer = load(args.model, adapter_path=str(args.adapters_dir))
     resposta = generate(modelo, tokenizer, prompt=montar_prompt(tokenizer, texto), max_tokens=8, verbose=False)
-    print(interpretar_resposta(resposta))
+    veredito = interpretar_resposta(resposta)
+    if args.visual:
+        painel_veredito(veredito, titulo="Classificação do modelo")
+    else:
+        print(veredito)
 
 
 if __name__ == "__main__":
+    load_dotenv(ROOT_DIR / ".env")
     parser = argparse.ArgumentParser(description="Classifica uma notícia sem executar novo fine-tuning.")
     entrada = parser.add_mutually_exclusive_group(required=True)
     entrada.add_argument("--texto", help="Texto da notícia a classificar.")
     entrada.add_argument("--arquivo", type=Path, help="Arquivo UTF-8 contendo a notícia.")
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--model", default=os.environ.get("HF_MODEL_REPO") or DEFAULT_MODEL)
     parser.add_argument("--adapters-dir", type=Path, default=DEFAULT_ADAPTERS)
+    parser.add_argument("--visual", action="store_true", help="Mostra um painel visual no terminal.")
     main(parser.parse_args())

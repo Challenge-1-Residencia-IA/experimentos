@@ -16,8 +16,8 @@ from rich.layout import Layout
 from rich.text import Text
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT_DIR / "data/evidencias"
-ADAPTERS_DIR = ROOT_DIR / "models/adapters-evidencias"
+DATA_DIR = ROOT_DIR / "data/evidencias-por-url-v1"
+ADAPTERS_DIR = ROOT_DIR / "models/adapters-evidencias-por-url-v1"
 
 ITERS_TOTAIS = 100
 
@@ -74,24 +74,43 @@ def garantir_modelo_disponivel(modelo: str) -> None:
     print(f"[✓] Modelo disponível em: {caminho}", flush=True)
 
 
-def montar_comando(args: argparse.Namespace):
+def montar_comando(args: argparse.Namespace) -> list[str]:
+    """Monta o comando do MLX-LM a partir das opções do treinador."""
     comando = [
-    sys.executable, "-u", "-m", "mlx_lm", "lora",
-    "--model", args.model,
-    "--data", str(args.data_dir),
-    "--adapter-path", str(args.adapters_dir),
-    "--train",
-    "--iters", str(args.iters),
-    "--batch-size", str(args.batch_size),
-    "--learning-rate", str(args.learning_rate),
-    "--num-layers", str(args.num_layers),
-    "--max-seq-length", str(args.max_seq_length),
-    "--val-batches", str(args.val_batches),
-    "--steps-per-eval", str(args.steps_per_eval),
-    "--save-every", str(args.save_every),
-    "--steps-per-report", str(args.steps_per_report),
-    "--grad-accumulation-steps", str(args.grad_accumulation_steps),
-    "--seed", str(args.seed),
+        sys.executable,
+        "-u",
+        "-m",
+        "mlx_lm",
+        "lora",
+        "--model",
+        args.model,
+        "--data",
+        str(args.data_dir),
+        "--adapter-path",
+        str(args.adapters_dir),
+        "--train",
+        "--iters",
+        str(args.iters),
+        "--batch-size",
+        str(args.batch_size),
+        "--learning-rate",
+        str(args.learning_rate),
+        "--num-layers",
+        str(args.num_layers),
+        "--max-seq-length",
+        str(args.max_seq_length),
+        "--val-batches",
+        str(args.val_batches),
+        "--steps-per-eval",
+        str(args.steps_per_eval),
+        "--save-every",
+        str(args.save_every),
+        "--steps-per-report",
+        str(args.steps_per_report),
+        "--grad-accumulation-steps",
+        str(args.grad_accumulation_steps),
+        "--seed",
+        str(args.seed),
     ]
     if args.grad_checkpoint:
         comando.append("--grad-checkpoint")
@@ -102,6 +121,71 @@ def montar_comando(args: argparse.Namespace):
     if args.evaluate_test:
         comando.extend(["--test", "--test-batches", "-1"])
     return comando
+
+
+def criar_painel(progresso: Progress, texto_metricas: Text) -> Layout:
+    """Cria a vista de progresso mostrada enquanto o subprocesso treina."""
+    layout = Layout()
+    layout.split(
+        Layout(Panel(progresso, title="[bold green]Sift AI — Progresso do ajuste fino[/bold green]"), size=5),
+        Layout(Panel(texto_metricas, title="[bold blue]Métricas em tempo real[/bold blue]"), size=6),
+    )
+    return layout
+
+
+def regex_metricas() -> tuple[re.Pattern, re.Pattern]:
+    """Lê a saída do MLX-LM, cujos nomes de métricas são emitidos em inglês."""
+    numero = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+    treino = re.compile(
+        rf"Iter (\d+): Train loss ({numero}).*?It/sec ({numero}).*?Peak mem ({numero}) GB"
+    )
+    validacao = re.compile(rf"Iter (\d+): Val loss ({numero})")
+    return treino, validacao
+
+
+def guardar_melhor_checkpoint(
+    adapters_dir: Path, historico_validacao: list[dict]
+) -> Path | None:
+    """Copia o checkpoint com menor perda de validação para adapters_dir/best."""
+    melhor = min(historico_validacao, key=lambda item: item["perda_validacao"], default=None)
+    if melhor is None:
+        return None
+
+    checkpoint = adapters_dir / f"{melhor['iteracao']:07d}_adapters.safetensors"
+    if not checkpoint.exists():
+        return None
+
+    melhor_dir = adapters_dir / "best"
+    melhor_dir.mkdir(parents=True, exist_ok=True)
+    destino = melhor_dir / "adapters.safetensors"
+    shutil.copy2(checkpoint, destino)
+
+    config = adapters_dir / "adapter_config.json"
+    if config.exists():
+        shutil.copy2(config, melhor_dir / "adapter_config.json")
+    return destino
+
+
+def salvar_resumo(
+    args: argparse.Namespace,
+    comando: list[str],
+    historico_validacao: list[dict],
+    melhor_checkpoint: Path | None,
+) -> Path:
+    """Salva parâmetros e histórico do treino ao lado dos adaptadores."""
+    melhor = min(historico_validacao, key=lambda item: item["perda_validacao"], default=None)
+    resumo = {
+        "gerado_em_utc": datetime.now(timezone.utc).isoformat(),
+        "comando": comando,
+        "historico_validacao": historico_validacao,
+        "melhor_validacao": melhor,
+        "melhor_checkpoint": str(melhor_checkpoint) if melhor_checkpoint else None,
+        "observacao": "Compare também as métricas da tarefa; menor perda de validação não garante melhor verificação.",
+    }
+    args.adapters_dir.mkdir(parents=True, exist_ok=True)
+    caminho = args.adapters_dir / "training_summary.json"
+    caminho.write_text(json.dumps(resumo, ensure_ascii=False, indent=2), encoding="utf-8")
+    return caminho
 
 def main(args: argparse.Namespace):
     if not (args.data_dir / "train.jsonl").exists() or not (args.data_dir / "valid.jsonl").exists():
@@ -122,7 +206,7 @@ def main(args: argparse.Namespace):
 
     configurar_mlflow(args.tracking_uri, args.experiment_name)
     comando = montar_comando(args)
-    progress = Progress(
+    progresso = Progress(
         TextColumn("[bold cyan]{task.description}"),
         BarColumn(bar_width=40),
         TaskProgressColumn(),
@@ -131,47 +215,34 @@ def main(args: argparse.Namespace):
         TimeRemainingColumn(),
     )
 
-    task_id = progress.add_task("Treinando Sift LLM...", total=args.iters)
+    id_tarefa = progresso.add_task("Ajustando o modelo Sift LLM...", total=args.iters)
 
-    metrics_text = Text("Iniciando carregamento do modelo...", style="yellow")
+    texto_metricas = Text("Iniciando carregamento do modelo...", style="yellow")
 
-    def make_layout():
-        layout = Layout()
-        layout.split(
-            Layout(Panel(progress, title="[bold green]Sift AI - Fine-Tuning Progress[/bold green]"), size=5),
-            Layout(Panel(metrics_text, title="[bold blue]Métricas em Tempo Real[/bold blue]"), size=6)
-        )
-        return layout
-
-    numero = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
-    re_train = re.compile(
-        rf"Iter (\d+): Train loss ({numero}).*?It/sec ({numero}).*?Peak mem ({numero}) GB"
-    )
-    re_val = re.compile(rf"Iter (\d+): Val loss ({numero})")
-
+    padrao_treino, padrao_validacao = regex_metricas()
     historico_validacao = []
-    with mlflow.start_run(run_name=f"lora-{args.model.rsplit('/', 1)[-1]}"):
+    with mlflow.start_run(run_name=f"ajuste-fino-lora-{args.model.rsplit('/', 1)[-1]}"):
         mlflow.log_params({
-            "model": args.model,
-            "iterations": args.iters,
-            "data_dir": str(args.data_dir.resolve()),
-            "adapters_dir": str(args.adapters_dir.resolve()),
-            "batch_size": args.batch_size,
-            "learning_rate": args.learning_rate,
-            "num_layers": args.num_layers,
-            "max_seq_length": args.max_seq_length,
-            "grad_checkpoint": args.grad_checkpoint,
-            "grad_accumulation_steps": args.grad_accumulation_steps,
-            "mask_prompt": args.mask_prompt,
-            "seed": args.seed,
-            "resume_adapter_file": str(args.resume_adapter_file or ""),
-            "train_examples": total_treino,
-            "validation_examples": total_validacao,
-            "test_examples": total_teste,
+            "modelo": args.model,
+            "iteracoes": args.iters,
+            "diretorio_dados": str(args.data_dir.resolve()),
+            "diretorio_adaptadores": str(args.adapters_dir.resolve()),
+            "tamanho_lote": args.batch_size,
+            "taxa_aprendizado": args.learning_rate,
+            "numero_camadas": args.num_layers,
+            "comprimento_maximo_sequencia": args.max_seq_length,
+            "checkpoint_gradiente": args.grad_checkpoint,
+            "passos_acumulacao_gradiente": args.grad_accumulation_steps,
+            "mascarar_prompt": args.mask_prompt,
+            "semente": args.seed,
+            "arquivo_retomada_adaptador": str(args.resume_adapter_file or ""),
+            "exemplos_treinamento": total_treino,
+            "exemplos_validacao": total_validacao,
+            "exemplos_teste": total_teste,
         })
-        mlflow.set_tags({"framework": "mlx-lm", "task": "lora_fine_tuning"})
+        mlflow.set_tags({"biblioteca": "mlx-lm", "tarefa": "ajuste_fino_lora"})
 
-        with Live(make_layout(), refresh_per_second=4) as live:
+        with Live(criar_painel(progresso, texto_metricas), refresh_per_second=4) as live:
             ambiente = os.environ.copy()
             ambiente["PYTHONUNBUFFERED"] = "1"
             process = subprocess.Popen(
@@ -183,51 +254,57 @@ def main(args: argparse.Namespace):
                 env=ambiente,
             )
 
-            val_loss = "N/A"
+            perda_validacao = "Ainda não calculada"
             ultimas_linhas = []
 
             for line in iter(process.stdout.readline, ''):
                 linha_limpa = line.strip()
                 ultimas_linhas.append(linha_limpa)
                 ultimas_linhas = ultimas_linhas[-20:]
-                match_train = re_train.search(line)
+                match_train = padrao_treino.search(line)
                 if match_train:
                     iter_atual = int(match_train.group(1))
-                    train_loss = float(match_train.group(2))
-                    it_sec = float(match_train.group(3))
-                    mem = float(match_train.group(4))
+                    perda_treinamento = float(match_train.group(2))
+                    iteracoes_por_segundo = float(match_train.group(3))
+                    memoria_gb = float(match_train.group(4))
 
-                    progress.update(task_id, completed=iter_atual)
+                    progresso.update(id_tarefa, completed=iter_atual)
                     mlflow.log_metrics(
-                        {"train_loss": train_loss, "iterations_per_second": it_sec, "peak_memory_gb": mem},
+                        {
+                            "perda_treinamento": perda_treinamento,
+                            "iteracoes_por_segundo": iteracoes_por_segundo,
+                            "pico_memoria_gb": memoria_gb,
+                        },
                         step=iter_atual,
                     )
 
-                    metrics_text = Text.from_markup(
+                    texto_metricas = Text.from_markup(
                         f" Iteração: [bold white]{iter_atual}/{args.iters}[/bold white]\n"
-                        f" Loss Treino: [bold green]{train_loss}[/bold green] | Loss Validação: [bold yellow]{val_loss}[/bold yellow]\n"
-                        f" Velocidade: [bold cyan]{it_sec} iter/s[/bold cyan] | RAM Alocada: [bold magenta]{mem} GB[/bold magenta]"
+                        f" Perda de treinamento: [bold green]{perda_treinamento}[/bold green] | "
+                        f"Perda de validação: [bold yellow]{perda_validacao}[/bold yellow]\n"
+                        f" Velocidade: [bold cyan]{iteracoes_por_segundo} iterações/s[/bold cyan] | "
+                        f"Pico de memória: [bold magenta]{memoria_gb} GB[/bold magenta]"
                     )
-                    live.update(make_layout())
+                    live.update(criar_painel(progresso, texto_metricas))
 
                 elif linha_limpa:
-                    metrics_text = Text(
+                    texto_metricas = Text(
                         "Carregando/preparando o modelo...\n" + linha_limpa[-500:],
                         style="yellow",
                     )
-                    live.update(make_layout())
+                    live.update(criar_painel(progresso, texto_metricas))
 
-                match_val = re_val.search(line)
+                match_val = padrao_validacao.search(line)
                 if match_val:
                     iter_atual = int(match_val.group(1))
-                    val_loss = float(match_val.group(2))
-                    historico_validacao.append({"iteracao": iter_atual, "val_loss": val_loss})
-                    mlflow.log_metric("val_loss", val_loss, step=iter_atual)
-                    metrics_text = Text(
-                        f"Iteração: {iter_atual}/{args.iters}\nLoss de validação: {val_loss}",
+                    perda_validacao = float(match_val.group(2))
+                    historico_validacao.append({"iteracao": iter_atual, "perda_validacao": perda_validacao})
+                    mlflow.log_metric("perda_validacao", perda_validacao, step=iter_atual)
+                    texto_metricas = Text(
+                        f"Iteração: {iter_atual}/{args.iters}\nPerda de validação: {perda_validacao}",
                         style="yellow",
                     )
-                    live.update(make_layout())
+                    live.update(criar_painel(progresso, texto_metricas))
 
             retorno = process.wait()
             if retorno != 0:
@@ -237,29 +314,8 @@ def main(args: argparse.Namespace):
                     f"Saída final:\n{diagnostico}"
                 )
 
-        melhor = min(historico_validacao, key=lambda item: item["val_loss"], default=None)
-        melhor_checkpoint = None
-        if melhor:
-            candidato = args.adapters_dir / f"{melhor['iteracao']:07d}_adapters.safetensors"
-            if candidato.exists():
-                melhor_dir = args.adapters_dir / "best"
-                melhor_dir.mkdir(parents=True, exist_ok=True)
-                melhor_checkpoint = melhor_dir / "adapters.safetensors"
-                shutil.copy2(candidato, melhor_checkpoint)
-                config_adaptador = args.adapters_dir / "adapter_config.json"
-                if config_adaptador.exists():
-                    shutil.copy2(config_adaptador, melhor_dir / "adapter_config.json")
-        resumo = {
-            "gerado_em_utc": datetime.now(timezone.utc).isoformat(),
-            "comando": comando,
-            "historico_validacao": historico_validacao,
-            "melhor_validacao": melhor,
-            "melhor_checkpoint": str(melhor_checkpoint) if melhor_checkpoint else None,
-            "observacao": "Compare tambem as metricas de tarefa; menor val_loss nao garante melhor verificacao.",
-        }
-        args.adapters_dir.mkdir(parents=True, exist_ok=True)
-        resumo_path = args.adapters_dir / "training_summary.json"
-        resumo_path.write_text(json.dumps(resumo, ensure_ascii=False, indent=2), encoding="utf-8")
+        melhor_checkpoint = guardar_melhor_checkpoint(args.adapters_dir, historico_validacao)
+        resumo_path = salvar_resumo(args, comando, historico_validacao, melhor_checkpoint)
         if args.adapters_dir.exists():
             mlflow.log_artifacts(str(args.adapters_dir), artifact_path="adapters")
 
@@ -267,10 +323,10 @@ def main(args: argparse.Namespace):
 
 if __name__ == "__main__":
     load_dotenv(ROOT_DIR / ".env")
-    parser = argparse.ArgumentParser(description="Executa fine-tuning LoRA do Qwen com painel de progresso.")
+    parser = argparse.ArgumentParser(description="Executa o ajuste fino LoRA do Qwen com painel de progresso.")
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument("--adapters-dir", type=Path, default=ADAPTERS_DIR)
-    parser.add_argument("--model", default="mlx-community/Qwen2.5-7B-Instruct-4bit")
+    parser.add_argument("--model", default=os.environ.get("HF_MODEL_REPO") or "mlx-community/Qwen2.5-7B-Instruct-4bit")
     parser.add_argument("--iters", type=int, default=ITERS_TOTAIS)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--learning-rate", type=float, default=1e-5)
@@ -296,7 +352,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--tracking-uri",
         default=os.environ.get("MLFLOW_TRACKING_URI") or arquivo_uri(ROOT_DIR / "mlflow.db"),
-        help="URI do servidor/backend MLflow (padrão: SQLite local).",
+        help="Endereço do servidor ou banco do MLflow (padrão: SQLite local).",
     )
     parser.add_argument(
         "--experiment-name",

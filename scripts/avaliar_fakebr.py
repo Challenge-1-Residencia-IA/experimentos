@@ -10,10 +10,12 @@ from pathlib import Path
 import mlflow
 import pandas as pd
 from dotenv import load_dotenv
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from mlx_lm import generate, load
 from sklearn.metrics import accuracy_score, classification_report, precision_recall_fscore_support
 
 from preparar_fakebr import PROMPT_SISTEMA
+from ui_terminal import cabecalho, console, tabela_metricas
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -64,14 +66,26 @@ def main(args: argparse.Namespace) -> None:
     dados = pd.read_csv(args.test_csv).dropna(subset=["texto", "label"])
     if args.limit:
         dados = dados.head(args.limit).copy()
+    if args.visual:
+        cabecalho("Avaliação Fake.br", f"Amostras: {len(dados)} | Adaptador: {args.adapters_dir.name}")
+        console.print("[dim]Carregando modelo local...[/dim]")
     modelo, tokenizer = load(args.model, adapter_path=str(args.adapters_dir))
 
     respostas, predicoes = [], []
-    for indice, linha in enumerate(dados.itertuples(index=False), start=1):
-        resposta = generate(modelo, tokenizer, prompt=montar_prompt(tokenizer, linha.texto), max_tokens=8, verbose=False)
-        respostas.append(resposta)
-        predicoes.append(interpretar_resposta(resposta))
-        print(f"[{indice}/{len(dados)}] esperado={linha.label} predito={predicoes[-1]}", flush=True)
+    progresso = Progress(
+        SpinnerColumn(), TextColumn("[bold cyan]{task.description}"), BarColumn(),
+        TextColumn("{task.completed}/{task.total}"), TimeElapsedColumn(),
+        console=console, disable=not args.visual,
+    )
+    with progresso:
+        tarefa = progresso.add_task("Avaliando notícias", total=len(dados))
+        for indice, linha in enumerate(dados.itertuples(index=False), start=1):
+            resposta = generate(modelo, tokenizer, prompt=montar_prompt(tokenizer, linha.texto), max_tokens=8, verbose=False)
+            respostas.append(resposta)
+            predicoes.append(interpretar_resposta(resposta))
+            progresso.advance(tarefa)
+            if not args.visual:
+                print(f"[{indice}/{len(dados)}] esperado={linha.label} predito={predicoes[-1]}", flush=True)
 
     avaliaveis = [predicao if predicao in ROTULOS else "fake" for predicao in predicoes]
     precisao, recall, f1, _ = precision_recall_fscore_support(
@@ -106,8 +120,12 @@ def main(args: argparse.Namespace) -> None:
         mlflow.log_artifact(str(predictions_path), artifact_path="evaluation")
         mlflow.log_artifact(str(report_path), artifact_path="evaluation")
 
-    print(f"[✓] Métricas: {report_path}")
-    print(json.dumps(metricas, ensure_ascii=False, indent=2))
+    if args.visual:
+        tabela_metricas(metricas, "Métricas Fake.br")
+        console.print(f"[green]✓[/green] Métricas: {report_path}")
+    else:
+        print(f"[✓] Métricas: {report_path}")
+        print(json.dumps(metricas, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
@@ -115,9 +133,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Avalia o modelo no teste estratificado do Fake.br.")
     parser.add_argument("--test-csv", type=Path, default=ROOT_DIR / "data/fakebr/test.csv")
     parser.add_argument("--adapters-dir", type=Path, default=ROOT_DIR / "models/adapters")
-    parser.add_argument("--model", default="mlx-community/Qwen2.5-7B-Instruct-4bit")
+    parser.add_argument("--model", default=os.environ.get("HF_MODEL_REPO") or "mlx-community/Qwen2.5-7B-Instruct-4bit")
     parser.add_argument("--results-dir", type=Path, default=ROOT_DIR / "results")
     parser.add_argument("--limit", type=int, help="Limita a avaliação; útil para smoke test.")
+    parser.add_argument("--visual", action="store_true", help="Mostra progresso e métricas em painel no terminal.")
     parser.add_argument("--experiment-name", default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "sift-lora-fine-tuning")
     parser.add_argument("--tracking-uri", default=os.environ.get("MLFLOW_TRACKING_URI") or arquivo_uri(ROOT_DIR / "mlflow.db"))
     args = parser.parse_args()

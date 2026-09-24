@@ -54,6 +54,8 @@ def main(args: argparse.Namespace) -> None:
     ]
     if args.limit_test:
         comando_avaliacao.extend(["--limit", str(args.limit_test)])
+    if args.visual:
+        comando_avaliacao.append("--visual")
     executar(comando_avaliacao)
 
 
@@ -63,12 +65,13 @@ if __name__ == "__main__":
     parser.add_argument("--input-csv", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--adapters-dir", type=Path, default=DEFAULT_ADAPTERS_DIR)
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--model", default=os.environ.get("HF_MODEL_REPO") or DEFAULT_MODEL)
     parser.add_argument("--iters", type=int, default=400)
     parser.add_argument("--test-size", type=float, default=0.15)
     parser.add_argument("--valid-size", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--limit-test", type=int, help="Avalia só N exemplos; útil para smoke test.")
+    parser.add_argument("--visual", action="store_true", help="Ativa o painel visual durante a avaliação final.")
     parser.add_argument("--results-dir", type=Path, default=ROOT_DIR / "results")
     parser.add_argument("--experiment-name", default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "fakebr-classificacao")
     parser.add_argument("--tracking-uri", default=os.environ.get("MLFLOW_TRACKING_URI") or f"sqlite:///{(ROOT_DIR / 'mlflow.db').resolve()}")

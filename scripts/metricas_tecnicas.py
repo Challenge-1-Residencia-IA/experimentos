@@ -30,6 +30,10 @@ from dataclasses import dataclass, field, asdict
 import pandas as pd
 import numpy as np
 
+from rich.table import Table
+
+from ui_terminal import cabecalho, console, tabela_metricas
+
 # Tentativa de importação para busca web e inferência com MLX
 try:
     from ddgs import DDGS
@@ -869,6 +873,35 @@ def imprimir_relatorio_terminal(relatorio: RelatorioTecnicoCompleto):
     print(linhas + "\n")
 
 
+def imprimir_relatorio_visual(relatorio: RelatorioTecnicoCompleto) -> None:
+    """Resume as métricas técnicas em painéis, preservando o relatório CLI clássico."""
+    cabecalho("Painel de métricas técnicas", "Avaliação separada por etapa do pipeline")
+    tabela_metricas({
+        "Acurácia global": relatorio.classificacao.acuracia_global,
+        "F1 macro": relatorio.classificacao.f1_score_macro,
+        "Extração correta": relatorio.extracao.taxa_identificacao_correta,
+        "Qualidade das fontes": relatorio.recuperacao.qualidade_fontes_score,
+        "Respostas sem evidência": relatorio.recuperacao.taxa_respostas_sem_evidencia,
+        "F1 de divergências": relatorio.divergencia.f1_divergencias,
+        "Taxa de alucinação": relatorio.geracao.taxa_alucinacao,
+    }, "Resumo das 8 métricas")
+    tabela = Table(title="Classificação por categoria", border_style="bright_blue")
+    tabela.add_column("Categoria", style="bold")
+    tabela.add_column("Precisão", justify="right")
+    tabela.add_column("Recall", justify="right")
+    tabela.add_column("F1", justify="right")
+    tabela.add_column("Suporte", justify="right")
+    for categoria, valores in relatorio.classificacao.por_classe.items():
+        tabela.add_row(
+            categoria,
+            f"{valores['precisao'] * 100:.1f}%",
+            f"{valores['recall'] * 100:.1f}%",
+            f"{valores['f1_score'] * 100:.1f}%",
+            str(int(valores['suporte'])),
+        )
+    console.print(tabela)
+
+
 # ==============================================================================
 # MAIN & CLI
 # ==============================================================================
@@ -923,6 +956,11 @@ def main():
         default=str(ROOT_DIR / "results/relatorio_metricas_tecnicas.json"),
         help="Caminho do arquivo JSON onde as métricas separadas serão salvas"
     )
+    parser.add_argument(
+        "--visual",
+        action="store_true",
+        help="Mostra um painel resumido e tabelas no terminal."
+    )
 
     args = parser.parse_args()
 
@@ -942,7 +980,10 @@ def main():
             saida_excel=args.output_excel
         )
 
-    imprimir_relatorio_terminal(relatorio)
+    if args.visual:
+        imprimir_relatorio_visual(relatorio)
+    else:
+        imprimir_relatorio_terminal(relatorio)
 
     if args.output_json:
         dados_json = {

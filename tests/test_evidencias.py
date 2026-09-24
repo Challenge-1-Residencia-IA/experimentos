@@ -8,7 +8,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT_DIR / "scripts"))
 
 from evidencias_utils import extrair_json, normalizar_veredito, validar_resposta
-from preparar_dataset_evidencias import balancear_treino, reduzir_vazamento_rotulo
+from preparar_dataset_evidencias import balancear_treino, grupo_url, reduzir_vazamento_rotulo, separar
 from verificar_link import filtrar_fontes, montar_auditoria
 
 
@@ -47,8 +47,30 @@ class EvidenciasUtilsTest(unittest.TestCase):
         self.assertTrue({"f1", "f2", "v1"}.issubset({r["id"] for r in balanceados}))
         self.assertEqual(len(balanceados), 4)
 
+    def test_oversample_nao_descarta_maioria_acima_do_alvo(self):
+        registros = [{"id": f"f{i}", "label": "FALSA"} for i in range(3)]
+        registros.append({"id": "v1", "label": "VERDADEIRA"})
+        balanceados = balancear_treino(registros, seed=42, estrategia="oversample", tamanho_alvo=2)
+        self.assertTrue({r["id"] for r in registros}.issubset({r["id"] for r in balanceados}))
+        self.assertEqual(len(balanceados), 6)
+
     def test_remove_vazamento_explicito(self):
         self.assertNotIn("é falsa", reduzir_vazamento_rotulo("A informação é falsa porque os dados divergem."))
+
+    def test_split_mantem_checagem_no_mesmo_conjunto(self):
+        registros = [
+            {"id": f"{i}-{j}", "url": f"https://www.exemplo.com/checagem/{i}/" + ("?origem=busca" if j else ""),
+             "label": "FALSA" if j == 0 else "VERDADEIRA"}
+            for i in range(14) for j in range(2)
+        ]
+        splits = separar(registros, seed=42)
+        grupos = [{grupo_url(r["url"]) for r in splits[nome]} for nome in ("train", "valid", "test")]
+        self.assertTrue(all(grupos))
+        self.assertTrue(grupos[0].isdisjoint(grupos[1]))
+        self.assertTrue(grupos[0].isdisjoint(grupos[2]))
+        self.assertTrue(grupos[1].isdisjoint(grupos[2]))
+        self.assertEqual(sum(map(len, splits.values())), len(registros))
+        self.assertEqual(splits, separar(registros, seed=42))
 
     def test_auditoria_exibe_regra_e_fonte_citada(self):
         auditoria = montar_auditoria(
