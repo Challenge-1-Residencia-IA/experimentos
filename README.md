@@ -11,9 +11,14 @@ formas de trabalho:
 O projeto é experimental. Os resultados do modelo ajudam a priorizar uma
 verificação, mas não substituem a leitura das fontes e a revisão humana.
 
+Para entender cada número do treinamento, das avaliações, da verificação por
+link, do MLflow e dos dashboards, consulte o
+[guia completo de métricas e gráficos](docs/METRICAS_E_GRAFICOS.md).
+
 ## Conteúdo
 
 ```text
+docs/       documentação detalhada das métricas e visualizações
 scripts/    preparação, treino, avaliação e inferência
 prompts/    prompts de extração e verificação em desenvolvimento
 tests/      testes unitários das regras de evidência
