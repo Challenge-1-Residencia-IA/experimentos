@@ -250,6 +250,14 @@ URL, redes sociais e domínios repetidos, e pede ao modelo um veredito citado.
 Snippets podem não refletir o conteúdo completo das fontes: verifique os links e
 revise manualmente resultados importantes.
 
+Alguns portais, como páginas protegidas por mecanismos anti-robô, podem devolver
+HTTP 403. Nesses casos o verificador tenta cabeçalhos de navegador e, se o
+bloqueio permanecer, usa explicitamente o título e o trecho indexados pelo
+mecanismo de busca. O campo `metodo_extracao` do relatório informa
+`html_direto`, `indice_de_busca` ou `titulo_da_url`. O último recurso usa o título
+legível presente no endereço quando site e busca falham. Resultados que não usam
+HTML direto exigem atenção adicional porque não representam o artigo completo.
+
 ### Painel visual no terminal
 
 Os scripts de teste mantêm a saída CLI simples para automação. Para exibir

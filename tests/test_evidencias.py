@@ -2,6 +2,9 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
+
+import requests
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -9,7 +12,7 @@ sys.path.insert(0, str(ROOT_DIR / "scripts"))
 
 from evidencias_utils import extrair_json, normalizar_veredito, validar_resposta
 from preparar_dataset_evidencias import balancear_treino, grupo_url, reduzir_vazamento_rotulo, separar
-from verificar_link import filtrar_fontes, montar_auditoria
+from verificar_link import extrair_texto, filtrar_fontes, montar_auditoria
 
 
 class EvidenciasUtilsTest(unittest.TestCase):
@@ -80,6 +83,43 @@ class EvidenciasUtilsTest(unittest.TestCase):
         )
         self.assertIn("contradizer", auditoria["requisito_para_o_veredito_emitido"])
         self.assertEqual(auditoria["fontes_que_o_modelo_disse_ter_usado"][0]["titulo"], "Fonte")
+
+    @patch("verificar_link.buscar_evidencias")
+    @patch("verificar_link.requests.get")
+    def test_extracao_usa_busca_quando_site_bloqueia(self, requisicao, busca):
+        resposta = Mock()
+        resposta.raise_for_status.side_effect = requests.HTTPError("403", response=Mock(status_code=403))
+        requisicao.return_value = resposta
+        busca.return_value = [{
+            "titulo": "Título recuperado pela busca",
+            "url": "https://noticias.exemplo.com/noticia/teste.ghtml",
+            "trecho": "Este trecho indexado possui conteúdo suficiente para representar a notícia bloqueada e extrair sua alegação principal.",
+        }]
+
+        titulo, texto, metodo = extrair_texto(
+            "https://noticias.exemplo.com/noticia/teste.ghtml", timeout=5, max_chars=500
+        )
+
+        self.assertEqual(titulo, "Título recuperado pela busca")
+        self.assertIn("conteúdo suficiente", texto)
+        self.assertEqual(metodo, "indice_de_busca")
+
+    @patch("verificar_link.buscar_evidencias", return_value=[])
+    @patch("verificar_link.requests.get")
+    def test_extracao_usa_titulo_da_url_quando_site_e_busca_bloqueiam(self, requisicao, _busca):
+        resposta = Mock()
+        resposta.raise_for_status.side_effect = requests.HTTPError("403", response=Mock(status_code=403))
+        requisicao.return_value = resposta
+
+        titulo, texto, metodo = extrair_texto(
+            "https://noticias.exemplo.com/quem-e-empresario-ligado-a-banco-e-alvo-do-ministerio-publico.ghtml",
+            timeout=5,
+            max_chars=500,
+        )
+
+        self.assertEqual(titulo, texto)
+        self.assertIn("empresario ligado", titulo.lower())
+        self.assertEqual(metodo, "titulo_da_url")
 
 
 if __name__ == "__main__":

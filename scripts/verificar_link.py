@@ -6,7 +6,7 @@ import json
 import os
 import re
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import mlflow
 import requests
@@ -22,7 +22,17 @@ from ui_terminal import cabecalho, console, painel_veredito, tabela_fontes
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-USER_AGENT = "SiftFactCheck/1.0 (+local research tool)"
+USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36"
+)
+BROWSER_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.7",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+}
 DEFAULT_MODEL = "mlx-community/Qwen2.5-7B-Instruct-4bit"
 DEFAULT_ADAPTERS = ROOT_DIR / "models/adapters-evidencias"
 DOMINIOS_SOCIAIS = {"facebook.com", "instagram.com", "tiktok.com", "x.com", "twitter.com", "youtube.com"}
@@ -33,13 +43,51 @@ DOMINIOS_PRIORITARIOS = (
 )
 
 
-def extrair_texto(url: str, timeout: int, max_chars: int) -> tuple[str, str]:
-    """Baixa HTML público e remove elementos que não pertencem à notícia."""
+def extrair_texto_da_busca(url: str, max_chars: int) -> tuple[str, str, str]:
+    """Recupera título e trecho indexados quando o site bloqueia acesso direto."""
+    parsed = urlparse(url)
+    termos_slug = re.sub(r"[-_/]+", " ", unquote(parsed.path)).strip()
+    consulta = f'site:{parsed.netloc} "{termos_slug[-240:]}"'
+    resultados = buscar_evidencias(consulta, 10)
+    alvo = url_normalizada(url)
+    candidatos = sorted(
+        (item for item in resultados if host_normalizado(item.get("url", "")) == host_normalizado(url)),
+        key=lambda item: url_normalizada(item.get("url", "")) != alvo,
+    )
+    for item in candidatos:
+        titulo = str(item.get("titulo", "")).strip()
+        trecho = str(item.get("trecho", "")).strip()
+        texto = " ".join(parte for parte in (titulo, trecho) if parte)
+        if titulo and len(texto) >= 80:
+            return titulo, texto[:max_chars], "indice_de_busca"
+
+    slug = Path(unquote(parsed.path)).stem
+    titulo_slug = re.sub(r"[-_]+", " ", slug).strip().capitalize()
+    if len(titulo_slug) >= 40 and len(titulo_slug.split()) >= 5:
+        return titulo_slug, titulo_slug[:max_chars], "titulo_da_url"
+    raise ValueError(
+        "A página bloqueou o acesso, a busca não retornou trecho suficiente e o endereço não contém um título legível."
+    )
+
+
+def extrair_texto(url: str, timeout: int, max_chars: int) -> tuple[str, str, str]:
+    """Baixa o HTML ou usa título/trecho indexados em caso de bloqueio."""
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("A URL deve começar com http:// ou https://.")
-    resposta = requests.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT})
-    resposta.raise_for_status()
+    try:
+        resposta = requests.get(url, timeout=timeout, headers=BROWSER_HEADERS)
+        resposta.raise_for_status()
+    except requests.RequestException as erro_direto:
+        try:
+            return extrair_texto_da_busca(url, max_chars)
+        except (ValueError, RuntimeError) as erro_busca:
+            codigo = getattr(getattr(erro_direto, "response", None), "status_code", None)
+            detalhe = f"HTTP {codigo}" if codigo else str(erro_direto)
+            raise RuntimeError(
+                f"Não foi possível acessar a página diretamente ({detalhe}) nem recuperar seu trecho pela busca. "
+                f"Detalhe da busca: {erro_busca}"
+            ) from erro_direto
     if "html" not in resposta.headers.get("Content-Type", "").lower():
         raise ValueError("A URL não retornou uma página HTML.")
 
@@ -51,8 +99,8 @@ def extrair_texto(url: str, timeout: int, max_chars: int) -> tuple[str, str]:
     texto = conteudo.get_text(" ", strip=True) if conteudo else ""
     texto = " ".join(texto.split())
     if len(texto) < 100:
-        raise ValueError("Não foi possível extrair texto suficiente da notícia.")
-    return titulo, texto[:max_chars]
+        return extrair_texto_da_busca(url, max_chars)
+    return titulo, texto[:max_chars], "html_direto"
 
 
 def host_normalizado(url: str) -> str:
@@ -167,9 +215,17 @@ def main(args: argparse.Namespace) -> None:
         console.print("[cyan]1/4[/cyan] Extraindo conteúdo da página...")
     if not args.visual:
         print("Baixando e extraindo a notícia...", flush=True)
-    titulo, texto = extrair_texto(args.url, args.timeout, args.max_chars)
+    titulo, texto, metodo_extracao = extrair_texto(args.url, args.timeout, args.max_chars)
     alegacao = extrair_alegacao(titulo, texto, args.max_claim_chars)
     if args.visual:
+        if metodo_extracao == "indice_de_busca":
+            console.print(
+                "[yellow]O site bloqueou a leitura direta. A alegação foi extraída do título e do trecho indexados na busca.[/yellow]"
+            )
+        elif metodo_extracao == "titulo_da_url":
+            console.print(
+                "[bold yellow]O site e a busca bloquearam a leitura. A alegação foi inferida somente do título presente na URL.[/bold yellow]"
+            )
         console.print(f"[bold]Alegação analisada:[/bold] {alegacao}")
         console.print("[cyan]2/4[/cyan] Buscando fontes independentes...")
     if not args.visual:
@@ -205,6 +261,7 @@ def main(args: argparse.Namespace) -> None:
     resultado = {
         "url_analisada": args.url,
         "titulo": titulo,
+        "metodo_extracao": metodo_extracao,
         "alegacao_analisada": alegacao,
         "consulta_de_evidencias": consulta,
         "veredito_modelo_fine_tunado": verificacao["veredito"],
@@ -228,12 +285,14 @@ def main(args: argparse.Namespace) -> None:
             "url": args.url,
             "model": args.model,
             "adapters_dir": str(args.adapters_dir.resolve()),
+            "metodo_extracao": metodo_extracao,
         })
         mlflow.log_metrics({
             "fontes_recuperadas": len(fontes),
             "caracteres_noticia": len(texto),
             "fontes_usadas": len(verificacao["fontes_usadas"]),
             "resposta_json_valida": int(verificacao["json_valido"]),
+            "extracao_html_direta": int(metodo_extracao == "html_direto"),
         })
         mlflow.log_dict(resultado, "verification/resultado.json")
     texto_saida = json.dumps(resultado, ensure_ascii=False, indent=2)
