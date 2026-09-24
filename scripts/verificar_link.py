@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+from collections import Counter
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -17,8 +18,9 @@ from amostrar_e_verificar import (
     buscar_evidencias,
     formatar_evidencias,
 )
+from auditoria_evidencias import calcular_metricas_auditoria, montar_rastro_decisao
 from evidencias_utils import montar_prompt_evidencias, validar_resposta
-from ui_terminal import cabecalho, console, painel_veredito, tabela_fontes
+from ui_terminal import cabecalho, console, painel_veredito, tabela_fontes, tabela_metricas
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -113,24 +115,31 @@ def url_normalizada(url: str) -> str:
     return f"{parsed.scheme.lower()}://{host_normalizado(url)}{parsed.path.rstrip('/')}"
 
 
-def filtrar_fontes(fontes: list[dict[str, str]], url_original: str) -> list[dict[str, str]]:
-    """Remove autocitacao, redes sociais, URLs repetidas e dominios repetidos."""
+def filtrar_fontes_com_auditoria(
+    fontes: list[dict[str, str]], url_original: str
+) -> tuple[list[dict[str, str]], dict]:
+    """Remove fontes inadequadas e registra por que cada resultado foi descartado."""
     original = url_normalizada(url_original)
     host_original = host_normalizado(url_original)
     vistas, dominios, saida = set(), set(), []
+    descartes: Counter[str] = Counter()
     for fonte in fontes:
         url = fonte.get("url", "").strip()
         host = host_normalizado(url)
         normalizada = url_normalizada(url) if url else ""
-        if (
-            not url
-            or not host
-            or normalizada == original
-            or host == host_original
-            or any(host == social or host.endswith(f".{social}") for social in DOMINIOS_SOCIAIS)
-            or normalizada in vistas
-            or host in dominios
-        ):
+        motivo = None
+        if not url or not host:
+            motivo = "sem_url_valida"
+        elif normalizada == original or host == host_original:
+            motivo = "mesmo_site_da_noticia"
+        elif any(host == social or host.endswith(f".{social}") for social in DOMINIOS_SOCIAIS):
+            motivo = "rede_social"
+        elif normalizada in vistas:
+            motivo = "url_repetida"
+        elif host in dominios:
+            motivo = "dominio_repetido"
+        if motivo:
+            descartes[motivo] += 1
             continue
         vistas.add(normalizada)
         dominios.add(host)
@@ -143,7 +152,18 @@ def filtrar_fontes(fontes: list[dict[str, str]], url_original: str) -> list[dict
                 return indice
         return len(DOMINIOS_PRIORITARIOS)
 
-    return sorted(saida, key=prioridade)
+    ordenadas = sorted(saida, key=prioridade)
+    return ordenadas, {
+        "resultados_brutos": len(fontes),
+        "fontes_aceitas_apos_filtros": len(ordenadas),
+        "fontes_descartadas": sum(descartes.values()),
+        "descartes_por_motivo": dict(descartes),
+    }
+
+
+def filtrar_fontes(fontes: list[dict[str, str]], url_original: str) -> list[dict[str, str]]:
+    """Compatibilidade: retorna apenas as fontes aceitas."""
+    return filtrar_fontes_com_auditoria(fontes, url_original)[0]
 
 
 def extrair_alegacao(titulo: str, texto: str, max_chars: int = 500) -> str:
@@ -174,8 +194,10 @@ def montar_auditoria(verificacao: dict, fontes: list[dict[str, str]], minimo_fon
         "INCONCLUSIVA": "As fontes sao ausentes, insuficientes, conflitantes ou nao permitem concluir.",
     }[veredito]
     alertas = []
-    if veredito != "INCONCLUSIVA" and not citadas:
-        alertas.append("Veredito conclusivo sem fonte citada; a resposta foi rebaixada para INCONCLUSIVA.")
+    if verificacao.get("fontes_insuficientes"):
+        alertas.append(
+            "O modelo citou menos fontes do que o mínimo configurado; a resposta foi rebaixada para INCONCLUSIVA."
+        )
     if len(fontes) < minimo_fontes:
         alertas.append("Ha menos fontes independentes que o minimo configurado.")
     alertas.append(
@@ -183,7 +205,9 @@ def montar_auditoria(verificacao: dict, fontes: list[dict[str, str]], minimo_fon
         "este relatorio nao prova automaticamente que a citacao sustenta o veredito."
     )
     return {
-        "regra_geral": "Um veredito conclusivo exige pelo menos uma fonte independente e uma citacao valida.",
+        "regra_geral": (
+            f"Um veredito conclusivo exige pelo menos {minimo_fontes} fontes independentes citadas e válidas."
+        ),
         "requisito_para_o_veredito_emitido": requisito_especifico,
         "minimo_fontes_independentes_configurado": minimo_fontes,
         "fontes_independentes_recuperadas": len(fontes),
@@ -232,7 +256,10 @@ def main(args: argparse.Namespace) -> None:
         print("Pesquisando evidências na web...", flush=True)
     consulta = alegacao
     fontes_brutas = buscar_evidencias(consulta, args.max_resultados * 3)
-    fontes = filtrar_fontes(fontes_brutas, args.url)[:args.max_resultados]
+    fontes_filtradas, auditoria_recuperacao = filtrar_fontes_com_auditoria(fontes_brutas, args.url)
+    fontes = fontes_filtradas[:args.max_resultados]
+    auditoria_recuperacao["fontes_apresentadas_ao_modelo"] = len(fontes)
+    auditoria_recuperacao["dominios_apresentados"] = [host_normalizado(fonte.get("url", "")) for fonte in fontes]
     if not (args.adapters_dir / "adapters.safetensors").exists():
         raise FileNotFoundError(f"Adaptador não encontrado em '{args.adapters_dir}'.")
     if len(fontes) < args.min_fontes_independentes:
@@ -252,12 +279,42 @@ def main(args: argparse.Namespace) -> None:
         resposta = generate(
             modelo,
             tokenizer,
-            prompt=montar_prompt_evidencias(tokenizer, alegacao, formatar_evidencias(fontes)),
+            prompt=montar_prompt_evidencias(
+                tokenizer,
+                alegacao,
+                formatar_evidencias(fontes),
+                minimo_fontes_conclusivas=args.min_fontes_independentes,
+            ),
             max_tokens=args.max_tokens,
             verbose=False,
         )
-    verificacao = validar_resposta(resposta, len(fontes))
+    verificacao = validar_resposta(
+        resposta,
+        len(fontes),
+        minimo_fontes_conclusivas=args.min_fontes_independentes,
+    )
     auditoria = montar_auditoria(verificacao, fontes, args.min_fontes_independentes)
+    metricas_auditoria = calcular_metricas_auditoria(
+        alegacao,
+        verificacao,
+        fontes,
+        args.min_fontes_independentes,
+        metodo_extracao,
+    )
+    metricas_auditoria["resultados_brutos_da_busca"] = len(fontes_brutas)
+    metricas_auditoria["fontes_descartadas_pelos_filtros"] = auditoria_recuperacao["fontes_descartadas"]
+    metricas_auditoria["fontes_nao_apresentadas_por_limite"] = max(0, len(fontes_filtradas) - len(fontes))
+    metricas_auditoria["taxa_descarte_da_busca"] = (
+        auditoria_recuperacao["fontes_descartadas"] / len(fontes_brutas) if fontes_brutas else 0.0
+    )
+    rastro_decisao = montar_rastro_decisao(
+        alegacao,
+        verificacao,
+        fontes,
+        args.min_fontes_independentes,
+        metodo_extracao,
+        auditoria_recuperacao,
+    )
     resultado = {
         "url_analisada": args.url,
         "titulo": titulo,
@@ -269,10 +326,14 @@ def main(args: argparse.Namespace) -> None:
         "fontes_usadas": verificacao["fontes_usadas"],
         "resposta_json_valida": verificacao["json_valido"],
         "citacoes_validas": verificacao["citacoes_validas"],
+        "fontes_suficientes_para_conclusao": not verificacao["fontes_insuficientes"],
         "resposta_bruta_modelo": resposta,
         "fontes_recuperadas": fontes,
-        "fontes_descartadas": len(fontes_brutas) - len(fontes),
+        "fontes_descartadas": auditoria_recuperacao["fontes_descartadas"],
+        "auditoria_da_recuperacao": auditoria_recuperacao,
         "auditoria_do_veredito": auditoria,
+        "metricas_de_auditoria": metricas_auditoria,
+        "rastro_da_decisao": rastro_decisao,
         "aviso": "Veredito automatizado baseado nos snippets recuperados; mantenha revisao humana para decisoes importantes.",
     }
     configurar_mlflow(args.tracking_uri, args.experiment_name)
@@ -288,11 +349,9 @@ def main(args: argparse.Namespace) -> None:
             "metodo_extracao": metodo_extracao,
         })
         mlflow.log_metrics({
-            "fontes_recuperadas": len(fontes),
             "caracteres_noticia": len(texto),
-            "fontes_usadas": len(verificacao["fontes_usadas"]),
-            "resposta_json_valida": int(verificacao["json_valido"]),
-            "extracao_html_direta": int(metodo_extracao == "html_direto"),
+            "minimo_fontes_exigido": args.min_fontes_independentes,
+            **metricas_auditoria,
         })
         mlflow.log_dict(resultado, "verification/resultado.json")
     texto_saida = json.dumps(resultado, ensure_ascii=False, indent=2)
@@ -313,6 +372,14 @@ def main(args: argparse.Namespace) -> None:
             titulo="Veredito com evidências",
         )
         tabela_fontes(fontes, verificacao["fontes_usadas"])
+        tabela_metricas({
+            "fontes_citadas": metricas_auditoria["fontes_citadas"],
+            "cobertura_fontes": metricas_auditoria["cobertura_fontes_recuperadas"],
+            "mínimo_atendido": metricas_auditoria["requisito_minimo_fontes_atendido"],
+            "justificativa_evidências": metricas_auditoria["sobreposicao_justificativa_evidencias"],
+            "fontes_prioritárias_citadas": metricas_auditoria["taxa_fontes_prioritarias_citadas"],
+            "auditabilidade_heurística": metricas_auditoria["indice_auditabilidade_heuristico"],
+        }, "Auditoria da resposta")
         console.print(
             f"[dim]JSON válido: {'sim' if verificacao['json_valido'] else 'não'} | "
             f"Citações válidas: {'sim' if verificacao['citacoes_validas'] else 'não'}[/dim]"

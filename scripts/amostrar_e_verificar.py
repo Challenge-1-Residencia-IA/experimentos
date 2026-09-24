@@ -14,7 +14,8 @@ from ddgs import DDGS
 from dotenv import load_dotenv
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
-from ui_terminal import cabecalho, console, painel_veredito, tabela_fontes
+from auditoria_evidencias import calcular_metricas_auditoria, montar_rastro_decisao
+from ui_terminal import cabecalho, console, painel_veredito, tabela_fontes, tabela_metricas
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -80,11 +81,13 @@ def formatar_evidencias(fontes: list[dict[str, str]]) -> str:
 def json_do_modelo(texto: str) -> dict[str, Any]:
     inicio, fim = texto.find("{"), texto.rfind("}")
     if inicio == -1 or fim == -1:
-        return {"classificacao": "INCONCLUSIVA", "confianca": "BAIXA", "justificativa": texto, "fontes_usadas": []}
+        return {"classificacao": "INCONCLUSIVA", "confianca": "BAIXA", "justificativa": texto, "fontes_usadas": [], "_json_valido": False}
     try:
-        return json.loads(texto[inicio : fim + 1])
+        resultado = json.loads(texto[inicio : fim + 1])
+        resultado["_json_valido"] = True
+        return resultado
     except json.JSONDecodeError:
-        return {"classificacao": "INCONCLUSIVA", "confianca": "BAIXA", "justificativa": texto, "fontes_usadas": []}
+        return {"classificacao": "INCONCLUSIVA", "confianca": "BAIXA", "justificativa": texto, "fontes_usadas": [], "_json_valido": False}
 
 
 def main(args: argparse.Namespace) -> None:
@@ -119,12 +122,32 @@ def main(args: argparse.Namespace) -> None:
             fontes = buscar_evidencias(alegacao, args.max_resultados)
             if not args.visual:
                 print(f"[{indice}/{args.quantidade}] Classificando com as evidências...", flush=True)
-            verificacao = json_do_modelo(
-                chamar_ollama(
+            resposta_bruta = chamar_ollama(
                     args.modelo,
                     PROMPT_VERIFICACAO.format(alegacao=alegacao, evidencias=formatar_evidencias(fontes)),
                     args.timeout,
                 )
+            verificacao = json_do_modelo(resposta_bruta)
+            fontes_usadas = verificacao.get("fontes_usadas", [])
+            citacoes_validas = isinstance(fontes_usadas, list) and all(
+                isinstance(numero, int) and 1 <= numero <= len(fontes) for numero in fontes_usadas
+            )
+            verificacao_auditavel = {
+                "veredito": verificacao.get("classificacao", "INCONCLUSIVA"),
+                "veredito_original": verificacao.get("classificacao", "INCONCLUSIVA"),
+                "justificativa": verificacao.get("justificativa", ""),
+                "justificativa_original": verificacao.get("justificativa", ""),
+                "fontes_usadas": fontes_usadas if isinstance(fontes_usadas, list) else [],
+                "json_valido": verificacao.pop("_json_valido", False),
+                "citacoes_validas": citacoes_validas,
+                "veredito_alterado": False,
+                "ajustes_aplicados": [],
+            }
+            indicadores = calcular_metricas_auditoria(
+                alegacao, verificacao_auditavel, fontes, minimo_fontes=1
+            )
+            rastro = montar_rastro_decisao(
+                alegacao, verificacao_auditavel, fontes, minimo_fontes=1
             )
             resultado = {
                 "id_amostra": indice,
@@ -132,6 +155,9 @@ def main(args: argparse.Namespace) -> None:
                 "alegacao_extraida": alegacao,
                 "classificacao_modelo": verificacao,
                 "fontes": fontes,
+                "resposta_bruta_modelo": resposta_bruta,
+                "metricas_de_auditoria": indicadores,
+                "rastro_da_decisao": rastro,
             }
             resultados.append(resultado)
             progresso.advance(tarefa)
@@ -141,10 +167,32 @@ def main(args: argparse.Namespace) -> None:
             else:
                 print(f"[{indice}/{args.quantidade}] {verificacao.get('classificacao', 'INCONCLUSIVA')}: {alegacao}", flush=True)
 
-    saida = {"modelo": args.modelo, "seed": args.seed, "quantidade": args.quantidade, "resultados": resultados}
+    chaves_resumo = (
+        "fontes_citadas",
+        "cobertura_fontes_recuperadas",
+        "requisito_minimo_fontes_atendido",
+        "justificativa_presente",
+        "sobreposicao_justificativa_evidencias",
+        "sobreposicao_alegacao_evidencias",
+        "indice_auditabilidade_heuristico",
+    )
+    metricas_resumo = {
+        f"media_{chave}": sum(
+            item["metricas_de_auditoria"][chave] for item in resultados
+        ) / len(resultados)
+        for chave in chaves_resumo
+    }
+    saida = {
+        "modelo": args.modelo,
+        "seed": args.seed,
+        "quantidade": args.quantidade,
+        "metricas_resumo": metricas_resumo,
+        "resultados": resultados,
+    }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(saida, ensure_ascii=False, indent=2), encoding="utf-8")
     if args.visual:
+        tabela_metricas(metricas_resumo, "Resumo de auditabilidade da amostra")
         console.print(f"[green]✓[/green] Resultado salvo em: {args.output}")
     else:
         print(f"Resultado salvo em: {args.output}")

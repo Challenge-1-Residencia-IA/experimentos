@@ -17,6 +17,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeEl
 from rich.table import Table
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 
+from auditoria_evidencias import calcular_metricas_auditoria, extrair_fontes_do_prompt, montar_rastro_decisao
 from evidencias_utils import ROTULOS_EVIDENCIAS, extrair_json, normalizar_veredito, validar_resposta
 from ui_terminal import cabecalho, console, tabela_metricas
 
@@ -66,6 +67,17 @@ def metricas_mlflow(metricas: dict, relatorio_classes: dict, presentes: list[str
         saida[f"precisao_{nome}"] = float(relatorio_classes[rotulo]["precision"])
         saida[f"revocacao_{nome}"] = float(relatorio_classes[rotulo]["recall"])
         saida[f"suporte_{nome}"] = float(relatorio_classes[rotulo]["support"])
+    for nome in (
+        "media_fontes_citadas",
+        "media_cobertura_fontes",
+        "taxa_requisito_minimo_fontes_atendido",
+        "taxa_justificativa_presente",
+        "media_sobreposicao_justificativa_evidencias",
+        "media_sobreposicao_alegacao_evidencias",
+        "media_indice_auditabilidade_heuristico",
+        "taxa_veredito_alterado_pelo_validador",
+    ):
+        saida[nome] = float(metricas[nome])
     return saida
 
 
@@ -110,6 +122,12 @@ def total_fontes(mensagens: list[dict]) -> int:
     return max(indices, default=0)
 
 
+def entrada_de_evidencias(mensagens: list[dict]) -> tuple[str, list[dict[str, str]]]:
+    texto_usuario = next((m.get("content", "") for m in mensagens if m.get("role") == "user"), "")
+    alegacao = re.search(r"(?is)ALEGACAO:\s*(.*?)\s*EVIDENCIAS:", texto_usuario)
+    return (alegacao.group(1).strip() if alegacao else "", extrair_fontes_do_prompt(texto_usuario))
+
+
 def main(args: argparse.Namespace) -> None:
     if not args.test_jsonl.exists():
         raise FileNotFoundError(f"Teste nao encontrado: '{args.test_jsonl}'.")
@@ -141,6 +159,9 @@ def main(args: argparse.Namespace) -> None:
             resposta = generate(modelo, tokenizer, prompt=prompt, max_tokens=args.max_tokens, verbose=False)
             qtd_fontes = total_fontes(mensagens)
             predito = validar_resposta(resposta, qtd_fontes)
+            alegacao, fontes = entrada_de_evidencias(mensagens)
+            indicadores = calcular_metricas_auditoria(alegacao, predito, fontes, minimo_fontes=1)
+            rastro = montar_rastro_decisao(alegacao, predito, fontes, minimo_fontes=1)
             fontes_esperadas = alvo.get("fontes_usadas", []) if isinstance(alvo.get("fontes_usadas", []), list) else []
             abstencao_esperada = esperado == "INCONCLUSIVA"
             linhas.append({
@@ -152,9 +173,15 @@ def main(args: argparse.Namespace) -> None:
             "citacoes_validas": predito["citacoes_validas"],
             "fontes_esperadas": json.dumps(fontes_esperadas),
             "fontes_preditas": json.dumps(predito["fontes_usadas"]),
+            "veredito_original_modelo": predito["veredito_original"],
+            "veredito_alterado_validador": predito["veredito_alterado"],
+            "ajustes_validador": json.dumps(predito["ajustes_aplicados"], ensure_ascii=False),
+            "justificativa_modelo": predito["justificativa_original"],
+            "rastro_decisao": json.dumps(rastro, ensure_ascii=False),
             "abstencao_esperada": abstencao_esperada,
             "abstencao_correta": (not abstencao_esperada) or predito["veredito"] == "INCONCLUSIVA",
             "resposta_bruta": resposta,
+            **indicadores,
             })
             progresso.advance(tarefa)
             if not args.visual:
@@ -176,6 +203,14 @@ def main(args: argparse.Namespace) -> None:
         "taxa_json_valido": float(quadro["json_valido"].mean()),
         "taxa_citacoes_validas": float(quadro["citacoes_validas"].mean()),
         "taxa_abstencao_correta": float(inconclusivos["abstencao_correta"].mean()) if len(inconclusivos) else 0.0,
+        "media_fontes_citadas": float(quadro["fontes_citadas"].mean()),
+        "media_cobertura_fontes": float(quadro["cobertura_fontes_recuperadas"].mean()),
+        "taxa_requisito_minimo_fontes_atendido": float(quadro["requisito_minimo_fontes_atendido"].mean()),
+        "taxa_justificativa_presente": float(quadro["justificativa_presente"].mean()),
+        "media_sobreposicao_justificativa_evidencias": float(quadro["sobreposicao_justificativa_evidencias"].mean()),
+        "media_sobreposicao_alegacao_evidencias": float(quadro["sobreposicao_alegacao_evidencias"].mean()),
+        "media_indice_auditabilidade_heuristico": float(quadro["indice_auditabilidade_heuristico"].mean()),
+        "taxa_veredito_alterado_pelo_validador": float(quadro["veredito_alterado_pelo_validador"].mean()),
     }
     metricas_pt = metricas_mlflow(metricas, relatorio_classes, presentes)
     criterios = avaliar_criterios(metricas_pt, presentes)

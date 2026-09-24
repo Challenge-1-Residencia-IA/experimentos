@@ -250,6 +250,13 @@ URL, redes sociais e domínios repetidos, e pede ao modelo um veredito citado.
 Snippets podem não refletir o conteúdo completo das fontes: verifique os links e
 revise manualmente resultados importantes.
 
+`--max-resultados` controla quantas fontes podem ser apresentadas ao modelo;
+isso não significa que todas sejam relevantes. `--min-fontes-independentes`
+controla quantas fontes distintas precisam ser citadas para permitir um veredito
+conclusivo. Com o valor `2`, uma resposta conclusiva que cite somente `[1]` é
+convertida para `INCONCLUSIVA`; para permanecer conclusiva, deve citar ao menos
+duas fontes que realmente sustentem a decisão.
+
 Alguns portais, como páginas protegidas por mecanismos anti-robô, podem devolver
 HTTP 403. Nesses casos o verificador tenta cabeçalhos de navegador e, se o
 bloqueio permanecer, usa explicitamente o título e o trecho indexados pelo
@@ -323,6 +330,39 @@ seleção; deixe a medição final para depois de escolher o modelo.
 A avaliação também cria uma execução no MLflow, no mesmo experimento informado
 por `--experiment-name`. O painel recebe métricas gerais, precisão, revocação e
 F1 por classe, critérios mínimos de protótipo, CSV de predições e relatório JSON.
+
+### Métricas de evidência e rastro da decisão
+
+Além das métricas de classificação, a verificação por link e a avaliação em
+lote registram indicadores sobre o caminho observável da resposta:
+
+| Indicador | O que mede |
+| --- | --- |
+| `fontes_recuperadas` e `dominios_unicos` | Volume e diversidade da evidência apresentada |
+| `fontes_citadas` | Quantas fontes o modelo declarou utilizar |
+| `cobertura_fontes_recuperadas` | Proporção das fontes apresentadas que foi citada |
+| `requisito_minimo_fontes_atendido` | Se o veredito respeitou o mínimo configurado |
+| `taxa_fontes_prioritarias_citadas` | Proporção das fontes citadas pertencente à lista heurística de domínios prioritários |
+| `taxa_fontes_citadas_mencionadas_na_justificativa` | Se a justificativa referencia explicitamente os índices citados |
+| `sobreposicao_justificativa_evidencias` | Fração dos termos da justificativa encontrada nos trechos citados |
+| `sobreposicao_alegacao_evidencias` | Fração dos termos da alegação encontrada nos trechos citados |
+| `veredito_alterado_pelo_validador` | Se regras determinísticas corrigiram ou rebaixaram a saída |
+| `indice_auditabilidade_heuristico` | Resumo de formato, citações, justificativa, mínimo de fontes e sustentação lexical |
+
+O JSON inclui `rastro_da_decisao`, com alegação, recuperação, regra aplicada,
+veredito originalmente declarado, ajustes do validador, justificativa e trechos
+das fontes citadas. Esse rastro não é uma cadeia de pensamento interna e não
+prova que o veredito seja verdadeiro: ele documenta somente informações
+observáveis e verificáveis. Sobreposição lexical e prioridade de domínio são
+heurísticas; a confirmação semântica ainda requer avaliação com gabarito ou
+revisão humana.
+
+O fluxo auxiliar do Ollama grava os mesmos indicadores e rastros por amostra,
+além de médias no campo `metricas_resumo`. O classificador binário Fake.br não
+recebe fontes e foi treinado para responder somente uma palavra; nele são
+registrados acurácia balanceada, coeficiente de Matthews, respostas
+interpretáveis, matriz de confusão e métricas por classe, mas não uma
+justificativa factual que o modelo não foi treinado para produzir.
 
 ## Comandos úteis
 

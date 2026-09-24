@@ -22,9 +22,20 @@ Use INCONCLUSIVA quando as fontes forem ausentes, insuficientes, conflitantes ou
 Use somente indices de fontes realmente fornecidas e nunca invente fontes."""
 
 
-def montar_mensagens_evidencias(alegacao: str, evidencias: str) -> list[dict[str, str]]:
+def montar_mensagens_evidencias(
+    alegacao: str,
+    evidencias: str,
+    minimo_fontes_conclusivas: int = 1,
+) -> list[dict[str, str]]:
+    regra_fontes = (
+        f"Para emitir FALSA, VERDADEIRA ou FORA_DE_CONTEXTO, cite pelo menos "
+        f"{minimo_fontes_conclusivas} fontes independentes distintas em fontes_usadas. "
+        "A justificativa deve mencionar os indices, como [1] e [2], e explicar como cada fonte citada sustenta o mesmo veredito. "
+        "Nao cite uma fonte que apenas repita a alegacao ou que nao de suporte ao veredito. "
+        "Se nao houver esse minimo de fontes realmente relevantes, responda INCONCLUSIVA."
+    )
     return [
-        {"role": "system", "content": PROMPT_SISTEMA_EVIDENCIAS},
+        {"role": "system", "content": f"{PROMPT_SISTEMA_EVIDENCIAS}\n{regra_fontes}"},
         {
             "role": "user",
             "content": f"ALEGACAO:\n{alegacao.strip()}\n\nEVIDENCIAS:\n{evidencias.strip()}",
@@ -32,13 +43,22 @@ def montar_mensagens_evidencias(alegacao: str, evidencias: str) -> list[dict[str
     ]
 
 
-def montar_prompt_evidencias(tokenizer: Any, alegacao: str, evidencias: str) -> str:
-    mensagens = montar_mensagens_evidencias(alegacao, evidencias)
+def montar_prompt_evidencias(
+    tokenizer: Any,
+    alegacao: str,
+    evidencias: str,
+    minimo_fontes_conclusivas: int = 1,
+) -> str:
+    mensagens = montar_mensagens_evidencias(
+        alegacao,
+        evidencias,
+        minimo_fontes_conclusivas=minimo_fontes_conclusivas,
+    )
     if hasattr(tokenizer, "apply_chat_template"):
         return tokenizer.apply_chat_template(mensagens, tokenize=False, add_generation_prompt=True)
     return (
-        f"{PROMPT_SISTEMA_EVIDENCIAS}\n\n"
-        f"ALEGACAO:\n{alegacao}\n\nEVIDENCIAS:\n{evidencias}\nRESPOSTA JSON:"
+        f"{mensagens[0]['content']}\n\n"
+        f"{mensagens[1]['content']}\nRESPOSTA JSON:"
     )
 
 
@@ -71,11 +91,16 @@ def normalizar_veredito(valor: Any) -> str:
     return texto if texto in ROTULOS_EVIDENCIAS else "INCONCLUSIVA"
 
 
-def validar_resposta(texto: str, total_fontes: int) -> dict[str, Any]:
+def validar_resposta(
+    texto: str,
+    total_fontes: int,
+    minimo_fontes_conclusivas: int = 1,
+) -> dict[str, Any]:
     objeto = extrair_json(texto)
     json_valido = objeto is not None
     objeto = objeto or {}
     fontes_brutas = objeto.get("fontes_usadas", [])
+    fontes_declaradas_original = fontes_brutas
     lista_fontes_valida = isinstance(fontes_brutas, list)
     if not lista_fontes_valida:
         fontes_brutas = []
@@ -92,13 +117,31 @@ def validar_resposta(texto: str, total_fontes: int) -> dict[str, Any]:
                 fontes.append(fonte)
     veredito = normalizar_veredito(objeto.get("veredito"))
     justificativa = str(objeto.get("justificativa", "")).strip()
-    if veredito != "INCONCLUSIVA" and not fontes:
+    veredito_original = veredito
+    justificativa_original = justificativa
+    ajustes_aplicados = []
+    if not json_valido:
+        ajustes_aplicados.append("resposta_sem_json_valido")
+    if not citacoes_validas:
+        ajustes_aplicados.append("indices_de_fontes_invalidos")
+    fontes_insuficientes = veredito != "INCONCLUSIVA" and len(fontes) < minimo_fontes_conclusivas
+    if fontes_insuficientes:
+        ajustes_aplicados.append("veredito_rebaixado_por_fontes_insuficientes")
         veredito = "INCONCLUSIVA"
-        justificativa = justificativa or "Nao ha fontes validas suficientes para um veredito conclusivo."
+        justificativa = (
+            f"O modelo citou {len(fontes)} fonte(s), mas o mínimo configurado para um veredito "
+            f"conclusivo é {minimo_fontes_conclusivas}."
+        )
     return {
         "veredito": veredito,
         "justificativa": justificativa,
         "fontes_usadas": fontes,
         "json_valido": json_valido,
         "citacoes_validas": citacoes_validas,
+        "fontes_insuficientes": fontes_insuficientes,
+        "veredito_original": veredito_original,
+        "justificativa_original": justificativa_original,
+        "veredito_alterado": veredito != veredito_original,
+        "ajustes_aplicados": ajustes_aplicados,
+        "fontes_declaradas_original": fontes_declaradas_original,
     }

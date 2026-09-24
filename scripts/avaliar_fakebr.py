@@ -12,7 +12,14 @@ import pandas as pd
 from dotenv import load_dotenv
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from mlx_lm import generate, load
-from sklearn.metrics import accuracy_score, classification_report, precision_recall_fscore_support
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    classification_report,
+    confusion_matrix,
+    matthews_corrcoef,
+    precision_recall_fscore_support,
+)
 
 from preparar_fakebr import PROMPT_SISTEMA
 from ui_terminal import cabecalho, console, tabela_metricas
@@ -96,6 +103,10 @@ def main(args: argparse.Namespace) -> None:
     predictions_path = args.results_dir / f"predicoes_fakebr_{rodada}.csv"
     report_path = args.results_dir / f"metricas_fakebr_{rodada}.json"
     dados = dados.assign(predicao=predicoes, resposta_modelo=respostas)
+    dados = dados.assign(
+        resposta_interpretavel=[predicao in ROTULOS for predicao in predicoes],
+        acertou=[esperado == predito for esperado, predito in zip(dados["label"], avaliaveis)],
+    )
     dados.to_csv(predictions_path, index=False)
 
     metricas = {
@@ -104,11 +115,27 @@ def main(args: argparse.Namespace) -> None:
         "recall_macro": recall,
         "f1_macro": f1,
         "indefinidas": sum(predicao == "indefinido" for predicao in predicoes),
+        "taxa_respostas_interpretaveis": sum(predicao in ROTULOS for predicao in predicoes) / len(predicoes),
+        "acuracia_balanceada": balanced_accuracy_score(dados["label"], avaliaveis),
+        "coeficiente_matthews": matthews_corrcoef(dados["label"], avaliaveis),
     }
+    por_classe = classification_report(
+        dados["label"], avaliaveis, labels=ROTULOS, output_dict=True, zero_division=0
+    )
+    for rotulo in ROTULOS:
+        metricas[f"precisao_{rotulo}"] = por_classe[rotulo]["precision"]
+        metricas[f"revocacao_{rotulo}"] = por_classe[rotulo]["recall"]
+        metricas[f"f1_{rotulo}"] = por_classe[rotulo]["f1-score"]
     relatorio = {
         "metadados": {"gerado_em_utc": datetime.now(timezone.utc).isoformat(), "modelo": args.model, "amostras": len(dados)},
         "metricas": metricas,
-        "por_classe": classification_report(dados["label"], avaliaveis, labels=ROTULOS, output_dict=True, zero_division=0),
+        "por_classe": por_classe,
+        "rotulos_matriz_confusao": ROTULOS,
+        "matriz_confusao": confusion_matrix(dados["label"], avaliaveis, labels=ROTULOS).tolist(),
+        "observacao_auditoria": (
+            "Este classificador binário foi treinado para responder apenas FALSA ou VERDADEIRA; "
+            "não possui evidências nem justificativa factual auditável."
+        ),
     }
     report_path.write_text(json.dumps(relatorio, ensure_ascii=False, indent=2), encoding="utf-8")
 

@@ -10,9 +10,10 @@ import requests
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT_DIR / "scripts"))
 
+from auditoria_evidencias import calcular_metricas_auditoria, montar_rastro_decisao
 from evidencias_utils import extrair_json, normalizar_veredito, validar_resposta
 from preparar_dataset_evidencias import balancear_treino, grupo_url, reduzir_vazamento_rotulo, separar
-from verificar_link import extrair_texto, filtrar_fontes, montar_auditoria
+from verificar_link import extrair_texto, filtrar_fontes, filtrar_fontes_com_auditoria, montar_auditoria
 
 
 class EvidenciasUtilsTest(unittest.TestCase):
@@ -25,6 +26,46 @@ class EvidenciasUtilsTest(unittest.TestCase):
         validada = validar_resposta(resposta, total_fontes=2)
         self.assertEqual(validada["veredito"], "INCONCLUSIVA")
         self.assertEqual(validada["fontes_usadas"], [])
+
+    def test_veredito_exige_minimo_configurado_de_fontes(self):
+        resposta = json.dumps({
+            "veredito": "VERDADEIRA",
+            "justificativa": "A fonte confirma.",
+            "fontes_usadas": [1],
+        })
+        validada = validar_resposta(resposta, total_fontes=5, minimo_fontes_conclusivas=2)
+        self.assertEqual(validada["veredito"], "INCONCLUSIVA")
+        self.assertTrue(validada["fontes_insuficientes"])
+        self.assertEqual(validada["fontes_usadas"], [1])
+
+    def test_veredito_aceita_duas_fontes_quando_configurado(self):
+        resposta = json.dumps({
+            "veredito": "VERDADEIRA",
+            "justificativa": "As fontes confirmam.",
+            "fontes_usadas": [1, 2],
+        })
+        validada = validar_resposta(resposta, total_fontes=5, minimo_fontes_conclusivas=2)
+        self.assertEqual(validada["veredito"], "VERDADEIRA")
+        self.assertFalse(validada["fontes_insuficientes"])
+
+    def test_metricas_e_rastro_da_justificativa(self):
+        fontes = [
+            {"titulo": "Órgão confirma dado", "url": "https://gov.br/dado", "trecho": "O órgão confirmou o dado oficial."},
+            {"titulo": "Agência confirma dado", "url": "https://reuters.com/dado", "trecho": "A agência também confirmou o dado."},
+        ]
+        verificacao = validar_resposta(json.dumps({
+            "veredito": "VERDADEIRA",
+            "justificativa": "As fontes [1] e [2] confirmam o dado oficial.",
+            "fontes_usadas": [1, 2],
+        }), total_fontes=2, minimo_fontes_conclusivas=2)
+        metricas = calcular_metricas_auditoria("O dado foi confirmado", verificacao, fontes, minimo_fontes=2)
+        rastro = montar_rastro_decisao("O dado foi confirmado", verificacao, fontes, minimo_fontes=2)
+
+        self.assertEqual(metricas["fontes_citadas"], 2)
+        self.assertEqual(metricas["requisito_minimo_fontes_atendido"], 1)
+        self.assertEqual(metricas["taxa_fontes_citadas_mencionadas_na_justificativa"], 1.0)
+        self.assertGreater(metricas["sobreposicao_justificativa_evidencias"], 0)
+        self.assertEqual(len(rastro["fontes_citadas_com_trechos"]), 2)
 
     def test_normaliza_fora_de_contexto(self):
         self.assertEqual(normalizar_veredito("fora de contexto"), "FORA_DE_CONTEXTO")
@@ -39,6 +80,10 @@ class EvidenciasUtilsTest(unittest.TestCase):
         ]
         filtradas = filtrar_fontes(fontes, "https://g1.globo.com/a")
         self.assertEqual([f["titulo"] for f in filtradas], ["oficial", "independente"])
+        _, auditoria = filtrar_fontes_com_auditoria(fontes, "https://g1.globo.com/a")
+        self.assertEqual(auditoria["descartes_por_motivo"]["mesmo_site_da_noticia"], 1)
+        self.assertEqual(auditoria["descartes_por_motivo"]["rede_social"], 1)
+        self.assertEqual(auditoria["descartes_por_motivo"]["dominio_repetido"], 1)
 
     def test_oversample_preserva_todos_os_ids(self):
         registros = [
