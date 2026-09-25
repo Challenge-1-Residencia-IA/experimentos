@@ -365,42 +365,6 @@ def amostrar_com_ollama() -> None:
     executar_script("amostrar_e_verificar.py", argumentos)
 
 
-def metricas_tecnicas() -> None:
-    argumentos = [
-        "--input_excel", str(perguntar_caminho("Planilha de teste", RAIZ / "data/benchmark/Sprint_1_Dataset_20_exemplos_complexos.xlsx")),
-        "--model_path", str(perguntar_caminho("Modelo local", RAIZ / "models/Qwen-FakeNews-Local")),
-        "--adapters_path", str(selecionar_adaptador(RAIZ / "models/adapters")),
-        "--output_excel", str(perguntar_caminho("Planilha de saída", RAIZ / "results/Sprint_1_Resultados_Modelo_Treinado.xlsx")),
-        "--output_json", str(perguntar_caminho("Relatório JSON", RAIZ / "results/relatorio_metricas_tecnicas.json")),
-        "--visual",
-    ]
-    predicoes = perguntar_opcional("Arquivo de predições existentes? Vazio = executar o modelo")
-    if predicoes:
-        argumentos.extend(["--predictions_file", predicoes])
-    executar_script("metricas_tecnicas.py", argumentos)
-
-
-def gerar_dashboard() -> None:
-    tipo = Prompt.ask("Tipo de dashboard", choices=["metricas", "amostral"], default="metricas")
-    if tipo == "metricas":
-        entrada = perguntar_caminho("Relatório JSON", RAIZ / "results/relatorio_metricas_tecnicas.json")
-        saida = perguntar_caminho("Imagem de saída", RAIZ / "results/dashboard_metricas.png")
-        executar_script("gerar_dashboard.py", ["--input-json", str(entrada), "--output", str(saida)])
-    else:
-        entrada = perguntar_caminho("Verificação amostral JSON", RAIZ / "results/verificacao_amostral.json")
-        saida = perguntar_caminho("Imagem de saída", RAIZ / "results/dashboard_verificacao_amostral.png")
-        executar_script("gerar_dashboard_verificacao.py", ["--input-json", str(entrada), "--output", str(saida)])
-
-
-def preparar_extracao_antiga() -> None:
-    argumentos = [
-        "--dataset-path", str(perguntar_caminho("Diretório com as pastas fake e true", RAIZ / "data/raw/full_texts")),
-        "--output-dir", str(perguntar_caminho("Diretório de saída", RAIZ / "data/processed")),
-        "--train-ratio", str(FloatPrompt.ask("Proporção de treinamento", default=0.8)),
-    ]
-    executar_script("preparar_dataset.py", argumentos)
-
-
 def abrir_mlflow() -> None:
     endereco = os.environ.get("MLFLOW_TRACKING_URI") or TRACKING_PADRAO
     porta = IntPrompt.ask("Porta da interface", default=5000)
@@ -421,16 +385,13 @@ ACOES: dict[str, tuple[str, str, Callable[[], None]]] = {
     "6": ("Pipeline completo Fake.br", "Prepara, treina e avalia classificação binária", pipeline_fakebr),
     "7": ("Classificar uma notícia", "Classificação direta de texto ou arquivo", classificar_noticia),
     "8": ("Amostragem com Ollama", "Amostra notícias, busca fontes e verifica", amostrar_com_ollama),
-    "9": ("Métricas técnicas antigas", "Executa ou recalcula as oito métricas da planilha", metricas_tecnicas),
-    "10": ("Gerar dashboard PNG", "Gera painel de métricas ou verificação amostral", gerar_dashboard),
-    "11": ("Preparar dataset de extração antigo", "Converte as pastas fake/true antigas para JSONL", preparar_extracao_antiga),
-    "12": ("Abrir MLflow", "Inicia a interface local de experimentos", abrir_mlflow),
-    "13": ("Preparar somente o Fake.br", "Cria os conjuntos de treino, validação e teste", preparar_fakebr),
-    "14": ("Avaliar somente o Fake.br", "Calcula métricas e registra a avaliação no MLflow", avaliar_fakebr),
-    "15": ("Fazer uma pergunta", "Responde com busca e fontes ou em modo de conversa local", responder_pergunta),
-    "16": ("Preparar perguntas", "Cria exemplos de resposta e justificativa para ajuste fino", preparar_perguntas),
-    "17": ("Baixar datasets públicos", "Baixa QA português em uma pasta raw isolada; não treina", baixar_perguntas_publicas),
-    "18": ("Mesclar datasets de perguntas", "Normaliza e mescla em um novo dataset; não treina", mesclar_perguntas_publicas),
+    "9": ("Abrir MLflow", "Inicia a interface local de experimentos", abrir_mlflow),
+    "10": ("Preparar somente o Fake.br", "Cria os conjuntos de treino, validação e teste", preparar_fakebr),
+    "11": ("Avaliar somente o Fake.br", "Calcula métricas e registra a avaliação no MLflow", avaliar_fakebr),
+    "12": ("Fazer uma pergunta", "Responde com busca e fontes ou em modo de conversa local", responder_pergunta),
+    "13": ("Preparar perguntas", "Cria exemplos de resposta e justificativa para ajuste fino", preparar_perguntas),
+    "14": ("Baixar datasets públicos", "Baixa QA português em uma pasta raw isolada; não treina", baixar_perguntas_publicas),
+    "15": ("Mesclar datasets de perguntas", "Normaliza e mescla em um novo dataset; não treina", mesclar_perguntas_publicas),
 }
 
 

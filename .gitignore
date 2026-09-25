@@ -43,11 +43,10 @@ mlflow.db*
 mlartifacts/
 mlruns/
 
-# Arquivos de entrada/saída pesados e visuais gerados
+# Resultados e arquivos de entrada/saída gerados
 *.xlsx
 *.xls
-results/*.png
-results/*.pdf
+results/
 
 # Logs e arquivos temporários
 *.log

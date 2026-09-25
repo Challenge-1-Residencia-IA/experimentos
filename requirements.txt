@@ -1,6 +1,5 @@
 mlx-lm
 pandas
-openpyxl
 ddgs
 beautifulsoup4
 requests
@@ -8,6 +7,4 @@ scikit-learn
 huggingface_hub
 python-dotenv
 rich
-matplotlib
-seaborn
 mlflow

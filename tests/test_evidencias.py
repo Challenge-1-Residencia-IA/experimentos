@@ -12,7 +12,6 @@ sys.path.insert(0, str(ROOT_DIR / "scripts"))
 
 from auditoria_evidencias import calcular_metricas_auditoria, montar_rastro_decisao
 from evidencias_utils import extrair_json, normalizar_veredito, validar_resposta
-from metricas_tecnicas import calcular_precisao_recall_f1, calcular_taxa_alucinacao
 from preparar_dataset_evidencias import balancear_treino, grupo_url, reduzir_vazamento_rotulo, separar
 from verificar_link import extrair_texto, filtrar_fontes, filtrar_fontes_com_auditoria, montar_auditoria
 
@@ -64,15 +63,6 @@ class EvidenciasUtilsTest(unittest.TestCase):
         validada = validar_resposta('{"veredito":"FALSA"}', total_fontes=2)
         self.assertEqual(validada["veredito"], "INCONCLUSIVA")
         self.assertFalse(validada["json_valido"])
-
-    def test_metricas_lexicais_rejeitam_listas_desalinhadas(self):
-        with self.assertRaises(ValueError):
-            calcular_taxa_alucinacao(["A justificativa menciona um fato."], [])
-
-    def test_predicao_fora_das_classes_aparece_na_matriz(self):
-        metricas = calcular_precisao_recall_f1(["FALSA"], ["NAO RECONHECIDA"])
-        self.assertEqual(metricas.acuracia_global, 0.0)
-        self.assertEqual(metricas.matriz_confusao["FALSA"]["INDEFINIDO"], 1)
 
     def test_metricas_e_rastro_da_justificativa(self):
         fontes = [
