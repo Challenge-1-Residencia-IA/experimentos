@@ -25,6 +25,11 @@ datasets/
 
 # Modelos, adaptadores e checkpoints de fine-tuning
 models/
+!models/
+models/*
+!models/README.md
+!models/*.json
+!models/*-card.md
 checkpoints/
 *.gguf
 *.safetensors

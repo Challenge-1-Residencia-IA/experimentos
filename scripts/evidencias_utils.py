@@ -64,6 +64,8 @@ def montar_prompt_evidencias(
 
 def extrair_json(texto: str) -> dict[str, Any] | None:
     """Extrai o primeiro objeto JSON completo, tolerando cercas Markdown."""
+    if not isinstance(texto, str):
+        return None
     inicio = texto.find("{")
     if inicio < 0:
         return None
@@ -120,18 +122,38 @@ def validar_resposta(
     veredito_original = veredito
     justificativa_original = justificativa
     ajustes_aplicados = []
+    estrutura_valida = (
+        json_valido
+        and isinstance(objeto.get("veredito"), str)
+        and objeto.get("veredito") in ROTULOS_EVIDENCIAS
+        and isinstance(objeto.get("justificativa"), str)
+        and bool(objeto.get("justificativa", "").strip())
+        and lista_fontes_valida
+    )
+    json_valido = json_valido and estrutura_valida
+    if not estrutura_valida:
+        veredito = "INCONCLUSIVA"
+        justificativa = "A resposta não corresponde ao formato JSON esperado."
+        ajustes_aplicados.append("estrutura_json_invalida")
     if not json_valido:
         ajustes_aplicados.append("resposta_sem_json_valido")
     if not citacoes_validas:
         ajustes_aplicados.append("indices_de_fontes_invalidos")
-    fontes_insuficientes = veredito != "INCONCLUSIVA" and len(fontes) < minimo_fontes_conclusivas
-    if fontes_insuficientes:
-        ajustes_aplicados.append("veredito_rebaixado_por_fontes_insuficientes")
+    resposta_conclusiva_sem_citacoes_validas = veredito_original != "INCONCLUSIVA" and not citacoes_validas
+    fontes_insuficientes = veredito_original != "INCONCLUSIVA" and len(fontes) < minimo_fontes_conclusivas
+    if resposta_conclusiva_sem_citacoes_validas or fontes_insuficientes:
+        if resposta_conclusiva_sem_citacoes_validas:
+            ajustes_aplicados.append("veredito_rebaixado_por_citacoes_invalidas")
+        if fontes_insuficientes:
+            ajustes_aplicados.append("veredito_rebaixado_por_fontes_insuficientes")
         veredito = "INCONCLUSIVA"
-        justificativa = (
-            f"O modelo citou {len(fontes)} fonte(s), mas o mínimo configurado para um veredito "
-            f"conclusivo é {minimo_fontes_conclusivas}."
-        )
+        if resposta_conclusiva_sem_citacoes_validas:
+            justificativa = "O modelo citou índices de fontes inválidos; a resposta foi rebaixada para INCONCLUSIVA."
+        else:
+            justificativa = (
+                f"O modelo citou {len(fontes)} fonte(s), mas o mínimo configurado para um veredito "
+                f"conclusivo é {minimo_fontes_conclusivas}."
+            )
     return {
         "veredito": veredito,
         "justificativa": justificativa,
@@ -139,6 +161,7 @@ def validar_resposta(
         "json_valido": json_valido,
         "citacoes_validas": citacoes_validas,
         "fontes_insuficientes": fontes_insuficientes,
+        "resposta_conclusiva_sem_citacoes_validas": resposta_conclusiva_sem_citacoes_validas,
         "veredito_original": veredito_original,
         "justificativa_original": justificativa_original,
         "veredito_alterado": veredito != veredito_original,

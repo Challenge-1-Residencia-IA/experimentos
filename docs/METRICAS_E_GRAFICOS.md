@@ -279,6 +279,13 @@ mais recente de evidências.
 O relatório também inclui `recall_divergencias`, `f1_divergencias`, contagens de
 TP/FP/FN/TN, métricas weighted, suporte e detalhes por caso.
 
+Na implementação legada, o cálculo dessas métricas exige o mesmo número de
+predições, gabaritos, justificativas e contextos. Respostas fora das classes
+configuradas são contabilizadas na coluna `INDEFINIDO` da matriz de confusão,
+em vez de desaparecerem silenciosamente. A taxa chamada `taxa_alucinacao` é um
+indicador lexical de falta de sobreposição, não uma detecção semântica de
+afirmações factualmente inventadas.
+
 ### Contadores que formam as métricas legadas
 
 Esses valores são denominadores ou diagnósticos, não notas isoladas:

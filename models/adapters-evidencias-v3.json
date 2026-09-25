@@ -1,0 +1,70 @@
+{
+  "nome": "adapters-evidencias-v3-best",
+  "hub": {
+    "repo_id": "Filipelac/sift-ai-adapters-evidencias",
+    "url": "https://huggingface.co/Filipelac/sift-ai-adapters-evidencias",
+    "revisao": "5bae4349300e2c4c20de12b2a7b0081e47ca45c4",
+    "tag": "adapters-2026-09-25",
+    "visibilidade": "private",
+    "status_publicacao": "publicado",
+    "artefatos": {
+      "v2_best": "v2-best/",
+      "v3_completo": "v3/",
+      "v3_best": "v3-best/"
+    }
+  },
+  "adapter_local": "models/adapters-evidencias-v3/best",
+  "checkpoint_iteracao": 50,
+  "modelo_base": "mlx-community/Qwen2.5-7B-Instruct-4bit",
+  "revisao_modelo_base": null,
+  "framework": "mlx-lm",
+  "tipo_ajuste": "LoRA",
+  "parametros_treino": {
+    "iteracoes": 100,
+    "melhor_iteracao_validacao": 50,
+    "val_loss": 0.038,
+    "learning_rate": 0.00001,
+    "batch_size": 1,
+    "num_layers": 16,
+    "max_seq_length": 1024,
+    "seed": 42,
+    "grad_checkpoint": true,
+    "mask_prompt": true
+  },
+  "dataset": {
+    "nome": "FACTCK.BR",
+    "versao_local": "data/evidencias-por-url-v1",
+    "fonte": "https://github.com/jghm-f/FACTCK.BR",
+    "licenca_declarada": "MIT",
+    "sha256": {
+      "train.jsonl": "da58f4ae89f579f2486daa26a28eae52668bf9c954b89218a2da0da2f1febe5c",
+      "valid.jsonl": "047933ec105c4c4bbb01fb63e5aa5097648a2b1c1b795c83f2173baea04f079d",
+      "test.jsonl": "4b99366fa0206f482d5c733747263f556f76a36c6aaa2630a0f86a0d64b2ec2e",
+      "metadata.json": "be9b4810334ed2aff87e13b87b37f9e5ad5e39e64fcc7c33f8faa7f569233d69"
+    }
+  },
+  "avaliacao": {
+    "relatorio": "results/metricas_evidencias_20260924T134213Z.json",
+    "predicoes": "results/predicoes_evidencias_20260924T134213Z.csv",
+    "amostras": 81,
+    "accuracy": 0.7160493827160493,
+    "f1_macro": 0.3012422360248447,
+    "taxa_json_valido": 0.9753086419753086,
+    "taxa_citacoes_validas": 1.0,
+    "taxa_abstencao_correta": 0.0,
+    "aprovado_para_prototipo": false
+  },
+  "sha256": {
+    "v2-best/adapter_config.json": "a48ca9914847a0c7fb82632fe4cf5652aadbdc84044a12de5623ba8fb0b1b94e",
+    "v2-best/adapters.safetensors": "772d055644f29b1ad3f16771418578217d9d3cee666288f4032c22c2d03ebd11",
+    "v3/0000025_adapters.safetensors": "d28f7e2153a15d58130ec46b85831e1c9fa07ffe10ae347a5a7f5eb2cea662c2",
+    "v3/0000050_adapters.safetensors": "48de45a6f4cf029a3c32e3a28619775d9b010e9288e885990c4de8cc6d355027",
+    "v3/0000075_adapters.safetensors": "da04dc10e43983fe40b05f225e431bd604429a9c4df29b7158a668827bfc2d32",
+    "v3/0000100_adapters.safetensors": "7df401918e276858d92a3d20a0e8e96f25aae58f8e0fa09f708418874632a927",
+    "v3/adapter_config.json": "a59fb282ea15a3c64deab9561f5059adfbb28e384cae02e9218bda421b26f242",
+    "v3/adapters.safetensors": "7df401918e276858d92a3d20a0e8e96f25aae58f8e0fa09f708418874632a927",
+    "v3/training_summary.json": "571a10f90a2a7dad3033941a26c7f486894f508282e0c7181403bd49f654b123",
+    "v3-best/adapter_config.json": "a59fb282ea15a3c64deab9561f5059adfbb28e384cae02e9218bda421b26f242",
+    "v3-best/adapters.safetensors": "48de45a6f4cf029a3c32e3a28619775d9b010e9288e885990c4de8cc6d355027"
+  }
+}

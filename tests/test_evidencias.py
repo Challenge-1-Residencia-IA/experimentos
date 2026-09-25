@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT_DIR / "scripts"))
 
 from auditoria_evidencias import calcular_metricas_auditoria, montar_rastro_decisao
 from evidencias_utils import extrair_json, normalizar_veredito, validar_resposta
+from metricas_tecnicas import calcular_precisao_recall_f1, calcular_taxa_alucinacao
 from preparar_dataset_evidencias import balancear_treino, grupo_url, reduzir_vazamento_rotulo, separar
 from verificar_link import extrair_texto, filtrar_fontes, filtrar_fontes_com_auditoria, montar_auditoria
 
@@ -47,6 +48,31 @@ class EvidenciasUtilsTest(unittest.TestCase):
         validada = validar_resposta(resposta, total_fontes=5, minimo_fontes_conclusivas=2)
         self.assertEqual(validada["veredito"], "VERDADEIRA")
         self.assertFalse(validada["fontes_insuficientes"])
+
+    def test_veredito_com_citacao_invalida_vira_inconclusivo(self):
+        resposta = json.dumps({
+            "veredito": "VERDADEIRA",
+            "justificativa": "As fontes confirmam.",
+            "fontes_usadas": [1, 9],
+        })
+        validada = validar_resposta(resposta, total_fontes=2, minimo_fontes_conclusivas=1)
+        self.assertEqual(validada["veredito"], "INCONCLUSIVA")
+        self.assertFalse(validada["citacoes_validas"])
+        self.assertTrue(validada["resposta_conclusiva_sem_citacoes_validas"])
+
+    def test_resposta_sem_campos_obrigatorios_nao_e_json_de_saida_valido(self):
+        validada = validar_resposta('{"veredito":"FALSA"}', total_fontes=2)
+        self.assertEqual(validada["veredito"], "INCONCLUSIVA")
+        self.assertFalse(validada["json_valido"])
+
+    def test_metricas_lexicais_rejeitam_listas_desalinhadas(self):
+        with self.assertRaises(ValueError):
+            calcular_taxa_alucinacao(["A justificativa menciona um fato."], [])
+
+    def test_predicao_fora_das_classes_aparece_na_matriz(self):
+        metricas = calcular_precisao_recall_f1(["FALSA"], ["NAO RECONHECIDA"])
+        self.assertEqual(metricas.acuracia_global, 0.0)
+        self.assertEqual(metricas.matriz_confusao["FALSA"]["INDEFINIDO"], 1)
 
     def test_metricas_e_rastro_da_justificativa(self):
         fontes = [
@@ -129,9 +155,10 @@ class EvidenciasUtilsTest(unittest.TestCase):
         self.assertIn("contradizer", auditoria["requisito_para_o_veredito_emitido"])
         self.assertEqual(auditoria["fontes_que_o_modelo_disse_ter_usado"][0]["titulo"], "Fonte")
 
+    @patch("verificar_link.socket.getaddrinfo", return_value=[(None, None, None, None, ("8.8.8.8", 80))])
     @patch("verificar_link.buscar_evidencias")
     @patch("verificar_link.requests.get")
-    def test_extracao_usa_busca_quando_site_bloqueia(self, requisicao, busca):
+    def test_extracao_usa_busca_quando_site_bloqueia(self, requisicao, busca, _resolver):
         resposta = Mock()
         resposta.raise_for_status.side_effect = requests.HTTPError("403", response=Mock(status_code=403))
         requisicao.return_value = resposta
@@ -149,9 +176,10 @@ class EvidenciasUtilsTest(unittest.TestCase):
         self.assertIn("conteúdo suficiente", texto)
         self.assertEqual(metodo, "indice_de_busca")
 
+    @patch("verificar_link.socket.getaddrinfo", return_value=[(None, None, None, None, ("8.8.8.8", 80))])
     @patch("verificar_link.buscar_evidencias", return_value=[])
     @patch("verificar_link.requests.get")
-    def test_extracao_usa_titulo_da_url_quando_site_e_busca_bloqueiam(self, requisicao, _busca):
+    def test_extracao_usa_titulo_da_url_quando_site_e_busca_bloqueiam(self, requisicao, _busca, _resolver):
         resposta = Mock()
         resposta.raise_for_status.side_effect = requests.HTTPError("403", response=Mock(status_code=403))
         requisicao.return_value = resposta
@@ -165,6 +193,23 @@ class EvidenciasUtilsTest(unittest.TestCase):
         self.assertEqual(titulo, texto)
         self.assertIn("empresario ligado", titulo.lower())
         self.assertEqual(metodo, "titulo_da_url")
+
+    @patch("verificar_link.requests.get")
+    def test_extracao_recusa_endereco_loopback_antes_da_requisicao(self, requisicao):
+        with self.assertRaises(ValueError):
+            extrair_texto("http://127.0.0.1/", timeout=5, max_chars=500)
+        requisicao.assert_not_called()
+
+    @patch("verificar_link.socket.getaddrinfo", return_value=[(None, None, None, None, ("8.8.8.8", 80))])
+    @patch("verificar_link.requests.get")
+    def test_extracao_valida_o_destino_de_redirecionamento(self, requisicao, _resolver):
+        resposta = Mock(status_code=302)
+        resposta.headers = {"Location": "http://127.0.0.1/admin"}
+        requisicao.return_value = resposta
+
+        with self.assertRaises(ValueError):
+            extrair_texto("http://noticias.exemplo.com/materia", timeout=5, max_chars=500)
+        requisicao.assert_called_once()
 
 
 if __name__ == "__main__":

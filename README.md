@@ -113,10 +113,140 @@ python main.py --opcao 2
 | 12 | Abrir MLflow | `mlflow.db` | Interface local em `http://127.0.0.1:5000` |
 | 13 | Preparar somente o Fake.br | CSV pré-processado | Conjuntos estratificados de treino, validação e teste |
 | 14 | Avaliar somente o Fake.br | CSV de teste e adapter | Métricas, predições e execução no MLflow |
+| 15 | Fazer uma pergunta | Pergunta em texto | Resposta com evidências ou conversa local |
+| 16 | Preparar perguntas | Dataset de evidências e JSONL revisado opcional | Exemplos de pergunta, resposta e justificativa |
+| 17 | Baixar datasets públicos | FaQuAD, Pirá e amostra RAG QA PT-BR | Cópias isoladas em `raw/publicos-perguntas-v1/`; não treina |
+| 18 | Mesclar datasets de perguntas | Dataset preparado e fontes públicas | Novo dataset deduplicado; não treina |
 
 As opções 1 a 7 trabalham com os modelos MLX locais. A opção 8 é uma linha de
 base separada: chama o serviço Ollama em `localhost:11434` e não usa os adapters
 salvos em `models/`.
+
+### Perguntas do usuário
+
+O fluxo de perguntas é separado da classificação de notícias, pois perguntas
+não devem receber automaticamente os rótulos `FALSA` ou `VERDADEIRA`. Pelo menu,
+use a opção 15. Pela linha de comando, o modo padrão pesquisa a web e exige duas
+fontes de domínios distintos:
+
+```bash
+python scripts/responder_pergunta.py \
+  "Qual é a capital do Brasil?" \
+  --modo evidencias \
+  --visual
+```
+
+Para uma conversa geral sem busca web:
+
+```bash
+python scripts/responder_pergunta.py \
+  "Explique o que é aprendizado de máquina" \
+  --modo conversa \
+  --visual
+```
+
+O modo `evidencias` retorna `RESPONDIDA` ou `INCONCLUSIVA`, uma resposta,
+uma justificativa curta baseada nos trechos e índices como `[1]`. Exige duas
+fontes de domínios diferentes para responder conclusivamente. O modo `conversa`
+também pede `resposta` e `justificativa`, mas não verifica fatos externos nem
+atualidade. O modelo-base é indicado para perguntas gerais; os adapters antigos
+foram treinados para classificar alegações e podem prejudicar a conversa.
+
+Cada pergunta cria uma execução no experimento `sift-perguntas` do MLflow.
+Ela registra parâmetros, indicadores de formato/citação e os artefatos
+`pergunta/resultado.json` (pergunta, prompt enviado, saída bruta, resposta,
+justificativa, fontes e ajustes de validação) e `pergunta/justificativa.txt`.
+O JSON exibido também traz `mlflow_run_id`. Isso é uma **explicação apresentada
+ao usuário e um rastro observável da execução**, não acesso ao raciocínio interno
+do modelo. Trechos de busca e respostas podem conter dados sensíveis; configure
+um servidor MLflow apropriado antes de registrar perguntas privadas.
+
+Quando a primeira geração produz JSON ou citações inválidas, o fluxo faz por
+padrão uma segunda tentativa pedindo somente a correção do contrato. Todas as
+tentativas, prompts, saídas brutas e diagnósticos ficam no artefato do MLflow.
+Use `--max-tentativas N` para alterar o limite. Adapters cujo caminho indica
+`evidencias`, `fakebr` ou `classificacao` são recusados no modo de perguntas,
+pois foram ajustados para outra tarefa. A substituição consciente dessa proteção
+exige `--permitir-adapter-incompativel`.
+
+### Ajustar o modelo para perguntas e justificativas
+
+O modelo-base já recebe perguntas sem treino adicional. O ajuste fino é útil
+para ensinar um formato de saída e um domínio específico. Os dados existentes
+do FACTCK.BR não bastam para ensinar respostas abertas: alguns trechos apenas
+repetem uma alegação e **não comprovam o rótulo**. Por isso, o preparo abaixo
+gera exemplos de *leitura de trechos*, sem converter os rótulos em fatos.
+
+```bash
+python scripts/preparar_dataset_perguntas.py
+python scripts/treinar_visual.py \
+  --data-dir data/perguntas-v1 \
+  --adapters-dir models/adapters-perguntas-v1 \
+  --experiment-name sift-perguntas-treino \
+  --iters 100
+```
+
+Revise `data/perguntas-v1/metadata.json` e amostras dos três JSONL antes de
+treinar. Use outro diretório de adapter em novos experimentos. O treinador
+registra perdas, parâmetros e arquivos do adapter no MLflow; a perda de
+validação mede previsão de texto, não correção factual. Compare respostas em
+perguntas reservadas, com revisão humana.
+
+Para perguntas gerais ou respostas factuais mais úteis, adicione exemplos
+**revisados por uma pessoa**, em um JSONL separado. Cada linha precisa de
+`split` (`train`, `valid` ou `test`), `modo`, `pergunta`, `resposta` e
+`justificativa`. Exemplo de conversa:
+
+```json
+{"split":"train","modo":"conversa","pergunta":"O que é overfitting?","resposta":"É quando um modelo se ajusta demais aos dados de treino e generaliza mal.","justificativa":"Ele pode memorizar padrões específicos do treino, o que aumenta o erro em dados novos."}
+```
+
+Em `modo: "evidencias"`, inclua `status`, `fontes` (objetos com `titulo`,
+`url`, `trecho`) e `fontes_usadas` (índices começando em 1). Respostas
+`RESPONDIDA` devem citar esses índices na resposta e na justificativa.
+Preserve a separação entre treino, validação e teste ao revisar exemplos.
+Depois execute:
+
+```bash
+python scripts/preparar_dataset_perguntas.py \
+  --curated-jsonl data/perguntas_revisadas.jsonl \
+  --output-dir data/perguntas-v2
+```
+
+Use `--no-evidence-reading` se quiser treinar somente com os exemplos
+revisados. No menu, a opção 16 prepara os dados e a opção 3 treina o adapter;
+na opção 15, escolha explicitamente o adapter de perguntas quando quiser
+testá-lo. Um adapter de leitura de fontes não garante desempenho em perguntas
+livres: a cobertura depende da qualidade e variedade dos exemplos revisados.
+
+#### Editar o prompt interno das perguntas
+
+O texto que o modelo recebe não fica embutido no Python. Edite os quatro
+arquivos em `prompts/`: `perguntas_evidencias_sistema.txt`,
+`perguntas_evidencias_usuario.txt`, `perguntas_conversa_sistema.txt` e
+`perguntas_conversa_usuario.txt`. Os arquivos `*_sistema.txt` contêm as
+instruções internas; `*_usuario.txt` definem como pergunta e evidências são
+apresentadas. Preserve os marcadores `{pergunta}`, `{evidencias}` e
+`{minimo_fontes}` nos arquivos correspondentes. O texto é relido a cada
+execução, sem necessidade de alterar código ou reiniciar um serviço.
+
+Para experimentar outra versão sem editar os arquivos padrão, copie os quatro
+templates para uma pasta nova e passe `--prompts-dir` tanto ao preparo do
+dataset quanto ao responder. O MLflow registra o diretório e o prompt final
+usado em cada resposta. Mudanças grandes no prompt podem exigir preparar
+novamente o dataset e treinar outro adapter, porque o treino anterior usou
+o formato antigo.
+
+### Adicionar datasets públicos sem treinar
+
+As opções 17 e 18 separam download, preparação e treinamento. A opção 17 baixa
+FaQuAD, Pirá e uma amostra limitada do RAG QA PT-BR para uma subpasta nova de
+`raw/`. A opção 18 mescla esses dados com `data/perguntas-v2` e grava em
+`data/perguntas-mescladas-v1`. Ela deduplica exemplos e mantém documentos no
+mesmo split para reduzir vazamento. Nenhuma das opções inicia o MLX-LM.
+
+Licenças, limitações, links e comandos estão em
+[`docs/DATASETS_PUBLICOS_PERGUNTAS.md`](docs/DATASETS_PUBLICOS_PERGUNTAS.md).
 
 O MLflow usa SQLite em `mlflow.db` e guarda artefatos em `mlartifacts/` por
 padrão. Para abrir a interface de experimentos em outro terminal:
@@ -258,9 +388,18 @@ revise manualmente resultados importantes.
 `--max-resultados` controla quantas fontes podem ser apresentadas ao modelo;
 isso não significa que todas sejam relevantes. `--min-fontes-independentes`
 controla quantas fontes distintas precisam ser citadas para permitir um veredito
-conclusivo. Com o valor `2`, uma resposta conclusiva que cite somente `[1]` é
-convertida para `INCONCLUSIVA`; para permanecer conclusiva, deve citar ao menos
-duas fontes que realmente sustentem a decisão.
+conclusivo. O padrão do comando e do menu é `2`. Uma resposta conclusiva que
+cite somente `[1]` é convertida para `INCONCLUSIVA`; para permanecer conclusiva,
+deve citar ao menos duas fontes que realmente sustentem a decisão. O treino e a
+avaliação offline preservam o contrato histórico de uma fonte, pois cada exemplo
+do FACTCK.BR contém uma única checagem como evidência; essas métricas não são
+diretamente comparáveis ao critério operacional do verificador de links.
+No fluxo de links, a independência é aproximada por domínios distintos; o filtro
+não confirma que os veículos não compartilham propriedade ou conteúdo.
+
+O verificador aceita somente hosts com endereços IP públicos e portas padrão
+HTTP/HTTPS. Ele valida cada destino de redirecionamento antes de continuar a
+requisição.
 
 Alguns portais, como páginas protegidas por mecanismos anti-robô, podem devolver
 HTTP 403. Nesses casos o verificador tenta cabeçalhos de navegador e, se o
@@ -269,6 +408,11 @@ mecanismo de busca. O campo `metodo_extracao` do relatório informa
 `html_direto`, `indice_de_busca` ou `titulo_da_url`. O último recurso usa o título
 legível presente no endereço quando site e busca falham. Resultados que não usam
 HTML direto exigem atenção adicional porque não representam o artigo completo.
+
+O adapter local `models/adapters-evidencias-v3/best` obteve F1 macro de `0.301`
+no teste reservado de 81 exemplos, com abstinência correta de `0%`. Ele continua
+sendo experimental e não atende aos critérios de qualidade do projeto. Os
+relatórios locais em `results/` não são versionados no Git.
 
 ### Painel visual no terminal
 
@@ -419,6 +563,7 @@ evita que treino, avaliação e inferência sejam implementados duas vezes.
 | `scripts/treinar_visual.py` | Ajuste fino LoRA, checkpoints, seleção do `/best` e MLflow |
 | `scripts/avaliar_evidencias.py` | Inferência no teste reservado, métricas, critérios e MLflow |
 | `scripts/verificar_link.py` | Extração de página, busca, filtragem de fontes e auditoria |
+| `scripts/responder_pergunta.py` | Perguntas com evidências web ou conversa local sem busca |
 | `scripts/executar_pipeline_evidencias.py` | Orquestra preparo, treino e avaliação de evidências |
 | `scripts/preparar_fakebr.py` | Prepara os conjuntos da classificação binária |
 | `scripts/avaliar_fakebr.py` | Avalia a classificação binária e registra no MLflow |

@@ -125,6 +125,74 @@ def verificar_link() -> None:
     executar_script("verificar_link.py", argumentos)
 
 
+def responder_pergunta() -> None:
+    pergunta = Prompt.ask("Digite sua pergunta").strip()
+    modo = Prompt.ask(
+        "Modo de resposta",
+        choices=["evidencias", "conversa"],
+        default="evidencias",
+    )
+    argumentos = [
+        pergunta,
+        "--modo", modo,
+        "--model", Prompt.ask("Modelo-base", default=MODELO_PADRAO),
+        "--max-tokens", str(IntPrompt.ask("Máximo de tokens da resposta", default=350)),
+        "--max-tentativas", str(IntPrompt.ask("Tentativas para corrigir formato/citações", default=2)),
+        "--visual",
+    ]
+    if modo == "evidencias":
+        argumentos.extend([
+            "--max-resultados", str(IntPrompt.ask("Máximo de fontes", default=5)),
+            "--min-fontes", str(IntPrompt.ask("Mínimo de fontes para responder", default=2)),
+        ])
+    if Confirm.ask("Usar um adapter de perguntas? Adapters de evidências/Fake.br serão recusados.", default=False):
+        argumentos.extend(["--adapters-dir", str(selecionar_adaptador())])
+    if Confirm.ask("Usar outra pasta de prompts internos?", default=False):
+        argumentos.extend(["--prompts-dir", str(perguntar_caminho("Pasta dos prompts", RAIZ / "prompts"))])
+    experimento, tracking = configuracao_mlflow("sift-perguntas")
+    argumentos.extend(["--experiment-name", experimento, "--tracking-uri", tracking])
+    if Confirm.ask("Salvar também um relatório JSON?", default=True):
+        saida = RAIZ / f"results/pergunta_{datetime.now():%Y%m%d_%H%M%S}.json"
+        argumentos.extend(["--output", str(perguntar_caminho("Arquivo JSON de saída", saida))])
+    executar_script("responder_pergunta.py", argumentos)
+
+
+def preparar_perguntas() -> None:
+    dados = perguntar_caminho("Dataset de evidências preparado", RAIZ / "data/evidencias-por-url-v1")
+    destino = perguntar_caminho("Novo dataset de perguntas", RAIZ / "data/perguntas-v1")
+    argumentos = ["--evidence-data-dir", str(dados), "--output-dir", str(destino)]
+    revisados = perguntar_opcional("JSONL de perguntas revisadas? Vazio = somente leitura de fontes")
+    if revisados:
+        argumentos.extend(["--curated-jsonl", revisados])
+    if Confirm.ask("Usar outra pasta de prompts internos?", default=False):
+        argumentos.extend(["--prompts-dir", str(perguntar_caminho("Pasta dos prompts", RAIZ / "prompts"))])
+    if Confirm.ask("Substituir arquivos de dataset existentes no destino?", default=False):
+        argumentos.append("--overwrite")
+    executar_script("preparar_dataset_perguntas.py", argumentos)
+    console.print("[dim]Para ajustar um adapter com estes dados, use a opção 3 e selecione o dataset de perguntas.[/dim]")
+
+
+def baixar_perguntas_publicas() -> None:
+    destino = perguntar_caminho("Pasta isolada para os dados públicos", RAIZ / "raw/publicos-perguntas-v1")
+    argumentos = [
+        "--output-dir", str(destino),
+        "--rag-limit", str(IntPrompt.ask("Quantidade máxima do RAG PT-BR sintético", default=5000)),
+    ]
+    if destino.exists() and any(destino.iterdir()):
+        argumentos.append("--resume")
+    executar_script("baixar_datasets_perguntas.py", argumentos)
+
+
+def mesclar_perguntas_publicas() -> None:
+    argumentos = [
+        "--base-data-dir", str(perguntar_caminho("Dataset de perguntas já preparado", RAIZ / "data/perguntas-v2")),
+        "--public-raw-dir", str(perguntar_caminho("Dados públicos baixados", RAIZ / "raw/publicos-perguntas-v1")),
+        "--output-dir", str(perguntar_caminho("Novo dataset mesclado", RAIZ / "data/perguntas-mescladas-v1")),
+        "--seed", str(IntPrompt.ask("Semente da divisão", default=42)),
+    ]
+    executar_script("preparar_dataset_perguntas_publicas.py", argumentos)
+
+
 def avaliar_evidencias() -> None:
     teste = perguntar_caminho("Conjunto de teste JSONL", RAIZ / "data/evidencias-por-url-v1/test.jsonl")
     adaptador = selecionar_adaptador()
@@ -359,6 +427,10 @@ ACOES: dict[str, tuple[str, str, Callable[[], None]]] = {
     "12": ("Abrir MLflow", "Inicia a interface local de experimentos", abrir_mlflow),
     "13": ("Preparar somente o Fake.br", "Cria os conjuntos de treino, validação e teste", preparar_fakebr),
     "14": ("Avaliar somente o Fake.br", "Calcula métricas e registra a avaliação no MLflow", avaliar_fakebr),
+    "15": ("Fazer uma pergunta", "Responde com busca e fontes ou em modo de conversa local", responder_pergunta),
+    "16": ("Preparar perguntas", "Cria exemplos de resposta e justificativa para ajuste fino", preparar_perguntas),
+    "17": ("Baixar datasets públicos", "Baixa QA português em uma pasta raw isolada; não treina", baixar_perguntas_publicas),
+    "18": ("Mesclar datasets de perguntas", "Normaliza e mescla em um novo dataset; não treina", mesclar_perguntas_publicas),
 }
 
 

@@ -2,12 +2,14 @@
 """Verifica uma notícia por URL usando busca web e evidências citadas."""
 
 import argparse
+import ipaddress
 import json
 import os
 import re
+import socket
 from collections import Counter
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 import mlflow
 import requests
@@ -74,11 +76,9 @@ def extrair_texto_da_busca(url: str, max_chars: int) -> tuple[str, str, str]:
 
 def extrair_texto(url: str, timeout: int, max_chars: int) -> tuple[str, str, str]:
     """Baixa o HTML ou usa título/trecho indexados em caso de bloqueio."""
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("A URL deve começar com http:// ou https://.")
+    validar_url_publica(url)
     try:
-        resposta = requests.get(url, timeout=timeout, headers=BROWSER_HEADERS)
+        resposta = requisitar_url_publica(url, timeout)
         resposta.raise_for_status()
     except requests.RequestException as erro_direto:
         try:
@@ -103,6 +103,57 @@ def extrair_texto(url: str, timeout: int, max_chars: int) -> tuple[str, str, str
     if len(texto) < 100:
         return extrair_texto_da_busca(url, max_chars)
     return titulo, texto[:max_chars], "html_direto"
+
+
+def validar_url_publica(url: str) -> None:
+    """Recusa destinos locais, privados e portas não web antes de fazer a requisição."""
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("A URL deve começar com http:// ou https:// e conter um host.")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("URLs com credenciais embutidas não são aceitas.")
+    try:
+        porta = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError as erro:
+        raise ValueError("A URL contém uma porta inválida.") from erro
+    porta_padrao = 443 if parsed.scheme == "https" else 80
+    if porta != porta_padrao:
+        raise ValueError("Somente as portas padrão HTTP (80) e HTTPS (443) são aceitas.")
+
+    host = parsed.hostname.rstrip(".")
+    try:
+        enderecos = {ipaddress.ip_address(host)}
+    except ValueError:
+        try:
+            enderecos = {
+                ipaddress.ip_address(info[4][0])
+                for info in socket.getaddrinfo(host, porta, type=socket.SOCK_STREAM)
+            }
+        except (OSError, ValueError) as erro:
+            raise ValueError("Não foi possível validar o host da URL.") from erro
+    if not enderecos or any(not endereco.is_global for endereco in enderecos):
+        raise ValueError("A URL precisa apontar somente para endereços IP públicos.")
+
+
+def requisitar_url_publica(url: str, timeout: int, max_redirecionamentos: int = 5) -> requests.Response:
+    """Segue redirecionamentos manualmente, validando cada destino."""
+    atual = url
+    for _ in range(max_redirecionamentos + 1):
+        validar_url_publica(atual)
+        resposta = requests.get(
+            atual,
+            timeout=timeout,
+            headers=BROWSER_HEADERS,
+            allow_redirects=False,
+        )
+        status_code = getattr(resposta, "status_code", None)
+        if not isinstance(status_code, int) or not 300 <= status_code < 400:
+            return resposta
+        destino = resposta.headers.get("Location")
+        if not destino:
+            return resposta
+        atual = urljoin(atual, destino)
+    raise requests.TooManyRedirects(f"A URL excedeu {max_redirecionamentos} redirecionamentos.")
 
 
 def host_normalizado(url: str) -> str:
@@ -197,6 +248,10 @@ def montar_auditoria(verificacao: dict, fontes: list[dict[str, str]], minimo_fon
     if verificacao.get("fontes_insuficientes"):
         alertas.append(
             "O modelo citou menos fontes do que o mínimo configurado; a resposta foi rebaixada para INCONCLUSIVA."
+        )
+    if verificacao.get("resposta_conclusiva_sem_citacoes_validas"):
+        alertas.append(
+            "A resposta citou índices inválidos; o veredito foi rebaixado para INCONCLUSIVA."
         )
     if len(fontes) < minimo_fontes:
         alertas.append("Ha menos fontes independentes que o minimo configurado.")
@@ -396,7 +451,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-chars", type=int, default=12000)
     parser.add_argument("--max-claim-chars", type=int, default=500)
     parser.add_argument("--max-tokens", type=int, default=220)
-    parser.add_argument("--min-fontes-independentes", type=int, default=1)
+    parser.add_argument("--min-fontes-independentes", type=int, default=2)
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--output", type=Path, help="Salva o relatório JSON neste caminho.")
     parser.add_argument("--visual", action="store_true", help="Mostra painel, etapas e fontes no terminal.")

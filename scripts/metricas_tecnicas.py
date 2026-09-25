@@ -260,6 +260,8 @@ def calcular_taxa_identificacao_afirmacoes(
     Avalia estritamente a habilidade do modelo de isolar a alegação principal.
     """
     total_casos = len(afirmacoes_gabarito_por_caso)
+    if len(afirmacoes_extraidas_por_caso) != total_casos:
+        raise ValueError("O número de listas de afirmações extraídas deve corresponder ao número de gabaritos.")
     corretas = 0
     total_extraidas = 0
     detalhes = []
@@ -310,6 +312,8 @@ def calcular_qualidade_fontes_e_cobertura(
       - Taxa de respostas sem evidência
     """
     total_casos = len(fontes_por_caso)
+    if len(respostas_emitidas) != total_casos:
+        raise ValueError("Deve haver uma resposta emitida para cada caso de recuperação.")
     total_fontes = 0
     fontes_alta = 0
     fontes_baixa = 0
@@ -382,6 +386,8 @@ def calcular_precisao_divergencias(
     """
     MÉTRICA 8: Precisão na identificação de divergências.
     """
+    if len(divergencias_detectadas) != len(divergencias_esperadas):
+        raise ValueError("Predições e gabaritos de divergência devem ter o mesmo tamanho.")
     total = len(divergencias_detectadas)
     tp = fp = fn = tn = 0
     detalhes = []
@@ -432,6 +438,8 @@ def calcular_taxa_alucinacao(
     MÉTRICA 6: Taxa de alucinação.
     """
     total_justificativas = len(justificativas_geradas)
+    if len(evidencias_e_contexto) != total_justificativas:
+        raise ValueError("Deve haver um contexto de evidências para cada justificativa.")
     total_frases = 0
     frases_alucinadas = 0
     detalhes = []
@@ -491,21 +499,27 @@ def calcular_precisao_recall_f1(
     """
     y_true_clean = [normalizar_categoria(x) for x in y_true]
     y_pred_clean = [normalizar_categoria(x) for x in y_pred]
+    if len(y_true_clean) != len(y_pred_clean):
+        raise ValueError("Rótulos esperados e predições devem ter o mesmo tamanho.")
 
     if labels is None:
         labels = ["FALSA", "VERDADEIRA", "FORA DE CONTEXTO", "OPINIÃO", "SÁTIRA"]
+    invalidos_reais = sorted(set(y_true_clean) - set(labels))
+    if invalidos_reais:
+        raise ValueError(f"Rótulos esperados fora das classes configuradas: {invalidos_reais}")
 
     total_amostras = len(y_true_clean)
     acertos = sum(1 for yt, yp in zip(y_true_clean, y_pred_clean) if yt == yp)
     acuracia = acertos / total_amostras if total_amostras > 0 else 0.0
 
     por_classe = {}
-    matriz_confusao = {l_real: {l_pred: 0 for l_pred in labels} for l_real in labels}
+    colunas_predicao = list(labels)
+    if any(pred not in labels for pred in y_pred_clean):
+        colunas_predicao.append("INDEFINIDO")
+    matriz_confusao = {l_real: {l_pred: 0 for l_pred in colunas_predicao} for l_real in labels}
 
     for yt, yp in zip(y_true_clean, y_pred_clean):
-        if yt in matriz_confusao:
-            if yp in matriz_confusao[yt]:
-                matriz_confusao[yt][yp] += 1
+        matriz_confusao[yt][yp if yp in colunas_predicao else "INDEFINIDO"] += 1
 
     precisoes = []
     recalls = []
