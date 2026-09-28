@@ -76,5 +76,6 @@ Contagens brutas crescem com o tamanho do texto. Por isso as métricas acima sã
 | F1 | Equilíbrio entre precisão (dos marcados como fake, quantos são) e recall (das fakes, quantas achou). |
 | Baseline | Modelo simples de referência. Um modelo real precisa superá-lo com folga. |
 | Atalho (shortcut) | Padrão que separa as classes sem ser a causa real (tamanho, veículo, época). |
+| Mascaramento | Apagar do texto possíveis atalhos (veículos, datas, números, boilerplate) e medir se o modelo ainda acerta. Queda grande = dependia deles. |
 | GroupKFold | Validação cruzada que mantém os itens de um grupo (o par fake/true) do mesmo lado. |
 | Vazamento | Informação do teste usada no treino. Deixa a nota melhor do que o modelo é. |
