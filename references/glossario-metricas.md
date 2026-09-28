@@ -39,6 +39,8 @@ Tamanho da diferença entre fake e true, de -1 a +1.
 | 0,33 – 0,474 | médio |
 | ≥ 0,474 | grande |
 
+Faixas de Romano et al. (2006), convertidas dos limiares do d de Cohen (0,2 / 0,5 / 0,8). São convenção, não propriedade da técnica: servem para ordenar e descrever efeitos, não para decidir sozinhas o que é relevante.
+
 ### p-valor (Mann-Whitney U)
 
 Chance de a diferença ser acaso. p < 0,05 = significativo. Com milhares de exemplos quase tudo dá p ≈ 0, então **o δ é o que diz se a diferença importa.**
@@ -79,3 +81,8 @@ Contagens brutas crescem com o tamanho do texto. Por isso as métricas acima sã
 | Mascaramento | Apagar do texto possíveis atalhos (veículos, datas, números, boilerplate) e medir se o modelo ainda acerta. Queda grande = dependia deles. |
 | GroupKFold | Validação cruzada que mantém os itens de um grupo (o par fake/true) do mesmo lado. |
 | Vazamento | Informação do teste usada no treino. Deixa a nota melhor do que o modelo é. |
+
+## Referências
+
+- Romano, J., Kromrey, J. D., Coraggio, J., & Skowronek, J. (2006). *Appropriate statistics for ordinal level data: Should we really be using t-test and Cohen's d for evaluating group differences on the NSSE and other surveys?* Annual meeting of the Florida Association of Institutional Research.
+- Cohen, J. (1988). *Statistical Power Analysis for the Behavioral Sciences* (2ª ed.). Lawrence Erlbaum Associates.
