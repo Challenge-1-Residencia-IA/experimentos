@@ -54,6 +54,10 @@ Chance de a diferença ser acaso. p < 0,05 = significativo. Com milhares de exem
 | TF-IDF | Peso alto para palavra frequente **neste** texto e rara **nos outros**. |
 | chi² | **Força** da associação termo ↔ classe. **Não indica o lado.** |
 | `prop_fake` / `prop_true` | % de textos de cada classe que contêm o termo. O maior indica o lado. |
+| Canonicalização | Padronizar o texto (sem acento, número, pontuação) antes de comparar, para variações de formatação contarem como iguais. |
+| Similaridade de cosseno | Semelhança entre dois textos vetorizados: 0 = nada em comum; 1 = mesmas palavras nas mesmas proporções. |
+| Quase-duplicata | Textos quase iguais (ex.: similaridade ≥ 0,9). Em bases grandes, detectados com MinHash + LSH. |
+| Índice de Jaccard | Itens em comum ÷ itens no total de duas listas. 1 = idênticas; 0 = nada em comum. |
 
 ## Estilometria
 
@@ -79,6 +83,9 @@ Contagens brutas crescem com o tamanho do texto. Por isso as métricas acima sã
 | Baseline | Modelo simples de referência. Um modelo real precisa superá-lo com folga. |
 | Atalho (shortcut) | Padrão que separa as classes sem ser a causa real (tamanho, veículo, época). |
 | Mascaramento | Apagar do texto possíveis atalhos (veículos, datas, números, boilerplate) e medir se o modelo ainda acerta. Queda grande = dependia deles. |
+| Classificabilidade por origem | Treinar um modelo para prever de qual dataset veio o texto. Acerto alto = datasets com "sotaques" próprios; juntá-los cria atalho. |
+| Generalização cruzada | Treinar num dataset e testar em outro. Queda grande em relação ao teste interno = o modelo aprendeu o dataset, não a tarefa. |
+| Chute de referência | Acurácia de sempre responder a classe mais frequente. Com classes 50/50 é 0,5; com tamanhos diferentes, é a proporção da maior. |
 | GroupKFold | Validação cruzada que mantém os itens de um grupo (o par fake/true) do mesmo lado. |
 | Vazamento | Informação do teste usada no treino. Deixa a nota melhor do que o modelo é. |
 
