@@ -28,7 +28,7 @@ Só a estrutura das pastas de dados/modelos é versionada (arquivos `.gitkeep`) 
 ```bash
 make create_environment   # ou: python3 -m venv .venv
 source .venv/bin/activate
-make requirements          # ou: pip install -r requirements.txt
+make requirements          # instala as dependências e baixa as stopwords do NLTK para .venv/nltk_data
 cp .env.example .env
 ```
 

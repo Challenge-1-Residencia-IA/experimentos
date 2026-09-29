@@ -9,6 +9,7 @@ create_environment:
 .PHONY: requirements
 requirements:
 	pip install -r requirements.txt
+	python -m nltk.downloader -d .venv/nltk_data stopwords
 
 .PHONY: test
 test:
