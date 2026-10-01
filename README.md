@@ -2,7 +2,16 @@
 
 Este repositório experimenta uma tutora que ensina a verificar informações.
 Ela recupera materiais educativos e evidências, explica como conferir uma
-alegação e só apresenta um veredito quando há suporte suficiente nas fontes.
+alegação e apresenta uma análise das evidências sem emitir veredito.
+
+Cada resposta mostra afirmação, evidências favoráveis e contrárias, contexto,
+pontos de atenção, avaliação das evidências e limitações. A avaliação descreve
+o estado das fontes consultadas; não classifica a alegação como verdadeira ou falsa.
+O prompt e o esquema JSON têm versão `analise-evidencias-v1`. Cada consulta
+registra no MLflow a pergunta, os documentos recuperados, a saída original do
+modelo, a resposta validada, o modelo e os arquivos do prompt e do esquema.
+Para registrar apenas a versão atual, sem consultar o modelo, execute
+`.venv/bin/python -m scripts.versionar_resposta_mlflow`.
 
 ## Início rápido
 

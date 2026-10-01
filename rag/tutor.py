@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import unicodedata
@@ -14,18 +15,43 @@ from rag.corpus import ROOT
 from rag.store import VectorStore
 
 SYSTEM_PROMPT = (ROOT / "prompts" / "tutora_rag.txt").read_text(encoding="utf-8")
-CONCLUSIVE = {"VERDADEIRA", "FALSA", "ENGANOSA"}
-VERDICTS = CONCLUSIVE | {"INCONCLUSIVA", "NAO_APLICAVEL"}
+
+EVALUATION_DESCRIPTIONS = {
+    "EVIDENCIAS_CONFLITANTES": "🟡 Evidências conflitantes",
+    "EVIDENCIAS_SUFICIENTES_FAVORAVEIS": "🟢 Evidências favoráveis consistentes",
+    "EVIDENCIAS_SUFICIENTES_CONTRARIAS": "🔴 Evidências contrárias consistentes",
+    "EVIDENCIAS_INSUFICIENTES": "⚪ Evidências insuficientes / inconclusivas",
+    "NAO_APLICAVEL": "🔘 Não aplicável (sem alegação factual verificável)",
+}
+EVALUATIONS = set(EVALUATION_DESCRIPTIONS)
+CONCLUSIVE_EVALUATIONS = {
+    "EVIDENCIAS_SUFICIENTES_FAVORAVEIS",
+    "EVIDENCIAS_SUFICIENTES_CONTRARIAS",
+}
+RESPONSE_VERSION = "analise-evidencias-v1"
+
 ANSWER_SCHEMA = {
     "type": "object",
     "properties": {
-        "como_verificar": {"type": "string"},
-        "analise": {"type": "string"},
-        "veredito": {"type": "string", "enum": sorted(VERDICTS)},
-        "justificativa": {"type": "string"},
+        "afirmacao": {"type": "string"},
+        "evidencias_favoraveis": {"type": "array", "items": {"type": "string"}},
+        "evidencias_contrarias": {"type": "array", "items": {"type": "string"}},
+        "contexto": {"type": "string"},
+        "pontos_de_atencao": {"type": "array", "items": {"type": "string"}},
+        "avaliacao_evidencias": {"type": "string", "enum": sorted(EVALUATIONS)},
+        "limitacoes": {"type": "string"},
         "fontes_usadas": {"type": "array", "items": {"type": "integer"}},
     },
-    "required": ["como_verificar", "analise", "veredito", "justificativa", "fontes_usadas"],
+    "required": [
+        "afirmacao",
+        "evidencias_favoraveis",
+        "evidencias_contrarias",
+        "contexto",
+        "pontos_de_atencao",
+        "avaliacao_evidencias",
+        "limitacoes",
+        "fontes_usadas",
+    ],
 }
 
 
@@ -63,7 +89,34 @@ def ask(
                          "publicacao_enviada": publication,
                          "historico": (history or [])[-4:]}, ensure_ascii=False)
     payload = ollama_json(SYSTEM_PROMPT, prompt, ANSWER_SCHEMA)
-    return validate_answer(payload, items)
+    answer = validate_answer(payload, items)
+    _track_answer(question, items, payload, answer)
+    return answer
+
+
+def _track_answer(question: str, items: list[dict], payload: dict, answer: dict) -> None:
+    """Registra cada consulta e a especificação exata da resposta no MLflow."""
+    import mlflow
+
+    uri = os.getenv("MLFLOW_TRACKING_URI") or f"sqlite:///{ROOT / 'mlflow.db'}"
+    name = os.getenv("MLFLOW_EXPERIMENT_NAME", "NexoVerdict-RAG")
+    mlflow.set_tracking_uri(uri)
+    experiment = mlflow.get_experiment_by_name(name)
+    if experiment is None:
+        mlflow.create_experiment(name, artifact_location=(ROOT / "mlartifacts" / "rag").as_uri())
+    mlflow.set_experiment(name)
+    with mlflow.start_run(run_name="consulta-analise", nested=mlflow.active_run() is not None):
+        mlflow.log_params({
+            "response_version": RESPONSE_VERSION,
+            "prompt_sha256": hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
+            "schema_sha256": hashlib.sha256(json.dumps(ANSWER_SCHEMA, sort_keys=True).encode()).hexdigest(),
+            "ollama_model": os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
+        })
+        mlflow.log_text(SYSTEM_PROMPT, "versao/prompt.txt")
+        mlflow.log_dict(ANSWER_SCHEMA, "versao/schema.json")
+        mlflow.log_dict({"pergunta": question, "documentos": items,
+                         "saida_modelo": payload, "resposta": answer}, "consulta/rastreio.json")
+        mlflow.set_tag("avaliacao_evidencias", answer["avaliacao_evidencias"])
 
 
 def ollama_json(system: str, user: str, schema: dict) -> dict:
@@ -148,11 +201,15 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
                        "data": page["date"], "trecho": page["text"][:1200]}
         claim, verifiable = extract_claim(page, focus=text)
         if not verifiable or not claim:
-            return {"como_verificar": "Identifique uma afirmação factual específica no link e procure sua fonte original.",
-                    "analise": "Não foi identificada uma alegação central verificável no conteúdo lido.",
-                    "veredito": "NAO_APLICAVEL", "justificativa": "Envie a afirmação específica que deseja checar.",
+            answer = {"afirmacao": "Nenhuma alegação factual verificável foi identificada.",
+                    "evidencias_favoraveis": [], "evidencias_contrarias": [],
+                    "contexto": "O conteúdo enviado não apresentou uma afirmação específica para análise.",
+                    "pontos_de_atencao": [], "avaliacao_evidencias": "NAO_APLICAVEL",
+                    "limitacoes": "A extração automática da alegação pode precisar de revisão.",
                     "fontes": [], "fonte_enviada": publication, "pesquisa_web": None,
                     "limite_da_validacao": "A extração automática da alegação pode precisar de revisão."}
+            _track_answer(message, [], answer, answer)
+            return answer
     else:
         claim = text
     if history and not url and len(claim.split()) < 7:
@@ -196,68 +253,50 @@ def cited_numbers(value: str) -> set[int]:
 def validate_answer(payload: dict, items: list[dict]) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("O modelo não retornou um objeto JSON")
-    for field in ("como_verificar", "analise", "veredito", "justificativa", "fontes_usadas"):
+    for field in ANSWER_SCHEMA["required"]:
         if field not in payload:
             raise ValueError(f"Campo ausente na resposta: {field}")
-    if payload["veredito"] not in VERDICTS:
-        raise ValueError("Veredito inválido")
+    if payload["avaliacao_evidencias"] not in EVALUATIONS:
+        raise ValueError("Avaliação das evidências inválida")
     if not isinstance(payload["fontes_usadas"], list):
         raise ValueError("fontes_usadas deve ser uma lista")
     indices = payload["fontes_usadas"]
     if any(not isinstance(index, int) or isinstance(index, bool) or index < 1 or index > len(items) for index in indices):
         raise ValueError("A resposta citou um documento inexistente")
-    for field in ("como_verificar", "analise", "justificativa"):
+    for field in ("afirmacao", "contexto", "limitacoes"):
         if not isinstance(payload[field], str):
             raise ValueError(f"{field} deve ser texto")
-    cited_in_text = cited_numbers(payload["analise"] + " " + payload["justificativa"])
+    for field in ("evidencias_favoraveis", "evidencias_contrarias", "pontos_de_atencao"):
+        if not isinstance(payload[field], list) or any(not isinstance(value, str) for value in payload[field]):
+            raise ValueError(f"{field} deve ser lista de textos")
+    factual_texts = (payload["evidencias_favoraveis"] + payload["evidencias_contrarias"]
+                     + payload["pontos_de_atencao"] + [payload["contexto"]])
+    cited_in_text = set().union(*(cited_numbers(value) for value in factual_texts))
     if any(index < 1 or index > len(items) for index in cited_in_text):
         raise ValueError("A resposta citou um documento inexistente")
+    for field in ("evidencias_favoraveis", "evidencias_contrarias"):
+        if any(not cited_numbers(value) for value in payload[field]):
+            raise ValueError(f"{field} contém afirmação sem citação")
+        if any(items[index - 1]["tipo"] != "evidencia"
+               for value in payload[field] for index in cited_numbers(value)):
+            raise ValueError(f"{field} cita material educativo como prova factual")
     payload["fontes_usadas"] = sorted(set(indices) | cited_in_text)
-    indices = payload["fontes_usadas"]
-    if not any(item["tipo"] == "evidencia" for item in items):
-        if payload["veredito"] != "NAO_APLICAVEL":
-            payload["veredito"] = "INCONCLUSIVA"
-            payload["motivo_inconclusiva"] = "Nenhuma evidência factual pôde ser recuperada ou lida para esta alegação."
-        payload["como_verificar"] = payload["como_verificar"] if payload["veredito"] == "NAO_APLICAVEL" else (
-            "Localize a publicação original, confira autoria e data e identifique quais provas ela apresenta. "
-            "Procure registros primários e checagens independentes sobre a afirmação específica. "
-            "Avalie o contexto completo; imagens isoladas e diferenças de aparência não bastam como prova."
-        )
-        payload["analise"] = payload["analise"] if payload["veredito"] == "NAO_APLICAVEL" else (
-            "A consulta não trouxe documentos de evidência sobre esta alegação. "
-            "Isso não a comprova e não coloca as hipóteses em pé de igualdade."
-        )
-        payload["justificativa"] = payload["justificativa"] if payload["veredito"] == "NAO_APLICAVEL" else (
-            "Não há suporte verificável entre as fontes lidas para confirmar a alegação. "
-            "O veredito indica uma limitação desta consulta; para classificar o fato, "
-            "é preciso examinar a origem da publicação e checagens ou registros independentes."
-        )
-        payload["fontes_usadas"] = [index for index in indices if items[index - 1]["tipo"] == "educativo"]
-    if payload["veredito"] in CONCLUSIVE:
+    if not any(item["tipo"] == "evidencia" for item in items) and payload["avaliacao_evidencias"] != "NAO_APLICAVEL":
+        payload["avaliacao_evidencias"] = "EVIDENCIAS_INSUFICIENTES"
+        payload["evidencias_favoraveis"] = []
+        payload["evidencias_contrarias"] = []
+        payload["contexto"] = "A consulta não trouxe documentos factuais sobre a alegação."
+        payload["limitacoes"] = "Não foram recuperadas evidências factuais; procure a publicação original e registros primários."
+        payload["fontes_usadas"] = []
+    if payload["avaliacao_evidencias"] in CONCLUSIVE_EVALUATIONS:
         groups = {
             items[index - 1]["grupo_origem"]
-            for index in indices
+            for index in cited_in_text
             if items[index - 1]["tipo"] == "evidencia" and items[index - 1]["qualificada"]
-            and index in cited_in_text
         }
         if len(groups) < 2:
-            payload["veredito"] = "INCONCLUSIVA"
-            payload["motivo_inconclusiva"] = (
-                f"O modelo citou {len(groups)} origem(ns) de evidência qualificada; são necessárias duas independentes."
-            )
-            payload["justificativa"] = (
-                "As evidências citadas não incluem duas origens qualificadas e independentes. "
-                "É necessário buscar e comparar mais fontes antes de concluir."
-            )
-            payload["fontes_usadas"] = sorted(cited_in_text)
-    if payload["veredito"] == "INCONCLUSIVA" and "motivo_inconclusiva" not in payload:
-        available = {item["grupo_origem"] for item in items
-                     if item["tipo"] == "evidencia" and item["qualificada"]}
-        payload["motivo_inconclusiva"] = (
-            f"A consulta encontrou {len(available)} origem(ns) de evidência qualificada; são necessárias duas independentes."
-            if len(available) < 2 else
-            "O modelo não encontrou suporte suficiente ou encontrou conflito nos trechos disponíveis."
-        )
+            payload["avaliacao_evidencias"] = "EVIDENCIAS_INSUFICIENTES"
+            payload["limitacoes"] += f" Foram citadas {len(groups)} origem(ns) qualificada(s) independente(s); a avaliação de suficiência exige duas."
     payload["fontes"] = [items[index - 1] for index in sorted(set(payload["fontes_usadas"]))]
     payload["limite_da_validacao"] = (
         "A validação confere formato, referências e diversidade declarada de origens; "

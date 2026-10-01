@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 
 from rag.corpus import CORPUS, ROOT
 from rag.store import MODEL, STORE, VectorStore
-from rag.tutor import SYSTEM_PROMPT, VERDICTS, ask
+from rag.tutor import SYSTEM_PROMPT, ANSWER_SCHEMA, EVALUATIONS, RESPONSE_VERSION, ask
 
 DEFAULT_CASES = ROOT / "data" / "avaliacao" / "casos.jsonl"
 EVIDENCE_K = 6  # O mesmo limite usado pela tutora.
@@ -31,15 +31,14 @@ def read_cases(path: Path) -> list[dict]:
             case = json.loads(line)
             if not isinstance(case, dict) or not isinstance(case.get("pergunta"), str) or not case["pergunta"].strip():
                 raise ValueError(f"Linha {number}: informe uma pergunta não vazia")
-            label = case.get("veredito_revisado")
-            if label is not None and label not in VERDICTS:
-                raise ValueError(f"Linha {number}: veredito_revisado inválido: {label}")
+            label = case.get("avaliacao_revisada")
+            if label is not None and label not in EVALUATIONS:
+                raise ValueError(f"Linha {number}: avaliacao_revisada inválida: {label}")
             urls = case.get("urls_esperadas", [])
             if not isinstance(urls, list) or any(not isinstance(url, str) or not url for url in urls):
                 raise ValueError(f"Linha {number}: urls_esperadas deve ser uma lista de URLs")
             cases.append({"id": case.get("id", str(number)), "pergunta": case["pergunta"],
-                          "veredito_revisado": label, "urls_esperadas": urls,
-                          "justificativa_revisada": case.get("justificativa_revisada")})
+                          "avaliacao_revisada": label, "urls_esperadas": urls})
     if not cases:
         raise ValueError("O arquivo de casos está vazio")
     return cases
@@ -57,7 +56,7 @@ def git_revision() -> str:
 def summarize(details: list[dict]) -> dict[str, float]:
     total = len(details)
     valid = [item for item in details if item["erro"] is None]
-    labeled = [item for item in details if item["veredito_revisado"] is not None]
+    labeled = [item for item in details if item["avaliacao_revisada"] is not None and item["erro"] is None]
     retrieval = [item for item in details if item["urls_esperadas"]]
     metrics = {
         "casos": float(total),
@@ -72,19 +71,10 @@ def summarize(details: list[dict]) -> dict[str, float]:
             for item in valid
         ) / len(valid)
     if labeled:
-        metrics["casos_com_veredito_revisado"] = float(len(labeled))
-        metrics["acuracia_veredito"] = sum(item["veredito"] == item["veredito_revisado"] for item in labeled) / len(labeled)
-        f1_scores = []
-        for label in sorted({item["veredito_revisado"] for item in labeled}):
-            expected = sum(item["veredito_revisado"] == label for item in labeled)
-            predicted = sum(item["veredito"] == label for item in labeled)
-            correct = sum(item["veredito_revisado"] == item["veredito"] == label for item in labeled)
-            metrics[f"recall_{label.lower()}"] = correct / expected
-            f1_scores.append(2 * correct / (expected + predicted) if expected + predicted else 0.0)
-        metrics["f1_macro"] = sum(f1_scores) / len(f1_scores)
-        abstention = [item for item in labeled if item["veredito_revisado"] == "INCONCLUSIVA"]
-        if abstention:
-            metrics["taxa_abstencao_correta"] = sum(item["veredito"] == "INCONCLUSIVA" for item in abstention) / len(abstention)
+        metrics["casos_com_avaliacao_revisada"] = float(len(labeled))
+        metrics["concordancia_avaliacao"] = sum(item["avaliacao_evidencias"] == item["avaliacao_revisada"] for item in labeled) / len(labeled)
+    if valid:
+        metrics["taxa_com_limitacoes"] = sum(bool(item["resposta"]["limitacoes"].strip()) for item in valid) / len(valid)
     if retrieval:
         metrics[f"hit_at_{EVIDENCE_K}"] = sum(item["rank_url_esperada"] is not None for item in retrieval) / len(retrieval)
         metrics["mrr"] = sum(1 / item["rank_url_esperada"] for item in retrieval if item["rank_url_esperada"] is not None) / len(retrieval)
@@ -121,8 +111,12 @@ def evaluate(
             "corpus_sha256": file_hash(corpus_path),
             "index_path": str(index_path),
             "prompt_sha256": hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
+            "schema_sha256": hashlib.sha256(json.dumps(ANSWER_SCHEMA, sort_keys=True).encode()).hexdigest(),
+            "response_version": RESPONSE_VERSION,
             "git_revision": git_revision(),
         })
+        mlflow.log_text(SYSTEM_PROMPT, "versao/prompt.txt")
+        mlflow.log_dict(ANSWER_SCHEMA, "versao/schema.json")
         if not index_path.exists():
             raise FileNotFoundError("Banco vetorial ausente. Execute a indexação antes da avaliação.")
         store = VectorStore(path=index_path)
@@ -130,7 +124,7 @@ def evaluate(
         for case in cases:
             start = time.perf_counter()
             item = {**case, "rank_url_esperada": None, "urls_recuperadas": [],
-                    "grupos_recuperados": [], "veredito": None, "resposta": None, "erro": None}
+                    "grupos_recuperados": [], "avaliacao_evidencias": None, "resposta": None, "erro": None}
             try:
                 evidence = store.search(case["pergunta"], "evidencia", limit=EVIDENCE_K, max_per_source=2)
                 teaching = store.search(case["pergunta"], "educativo", limit=3, max_per_source=2)
@@ -141,13 +135,13 @@ def evaluate(
                     (rank for rank, url in enumerate(item["urls_recuperadas"], 1) if url in expected), None
                 )
                 answer = ask(case["pergunta"], store, evidence=evidence, teaching=teaching)
-                item["veredito"] = answer["veredito"]
+                item["avaliacao_evidencias"] = answer["avaliacao_evidencias"]
                 item["resposta"] = answer
             except Exception as error:
                 item["erro"] = f"{type(error).__name__}: {error}"
             item["latencia_s"] = round(time.perf_counter() - start, 3)
             details.append(item)
-            print(f"{case['id']}: {item['veredito'] or 'ERRO'} ({item['latencia_s']:.1f}s)", flush=True)
+            print(f"{case['id']}: {item['avaliacao_evidencias'] or 'ERRO'} ({item['latencia_s']:.1f}s)", flush=True)
         metrics = summarize(details)
         mlflow.log_metrics(metrics)
         mlflow.log_dict({"metricas": metrics, "casos": details}, "avaliacao/relatorio.json")

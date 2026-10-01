@@ -100,21 +100,21 @@ def index() -> None:
 
 
 def render_answer(answer: dict) -> None:
-    verdict = answer["veredito"]
-    style = {
-        "VERDADEIRA": "green",
-        "FALSA": "red",
-        "ENGANOSA": "yellow",
-        "INCONCLUSIVA": "magenta",
-        "NAO_APLICAVEL": "cyan",
-    }.get(verdict, "white")
-    if answer.get("alegacao_verificada"):
-        console.print(Panel(Text(answer["alegacao_verificada"]), title="Alegação investigada", border_style="cyan"))
+    console.print("[bold]ANÁLISE[/bold]")
+    console.print(Panel(Text(answer["afirmacao"]), title="Afirmação", border_style="cyan"))
     if answer.get("fonte_enviada"):
         console.print(f"[dim]Publicação enviada: {answer['fonte_enviada']['url']}[/dim]")
-    console.print(Panel(Text(answer["como_verificar"]), title="Como verificar", border_style="cyan"))
-    console.print(Panel(Text(answer["analise"]), title="Análise das evidências", border_style="blue"))
-    console.print(Panel(Text(answer["justificativa"]), title=f"Veredito: {verdict}", border_style=style))
+    for title, key, color in (("Evidências favoráveis", "evidencias_favoraveis", "green"),
+                              ("Evidências contrárias", "evidencias_contrarias", "red"),
+                              ("Pontos de atenção", "pontos_de_atencao", "yellow")):
+        values = answer[key]
+        console.print(Panel(Text("\n".join(f"• {value}" for value in values) if values else "Nenhuma encontrada."),
+                            title=title, border_style=color))
+    console.print(Panel(Text(answer["contexto"]), title="Contexto", border_style="blue"))
+    from rag.tutor import EVALUATION_DESCRIPTIONS
+    console.print(Panel(Text(EVALUATION_DESCRIPTIONS[answer["avaliacao_evidencias"]]),
+                        title="Avaliação das evidências", border_style="yellow"))
+    console.print(Panel(Text(answer["limitacoes"]), title="Limitações", border_style="magenta"))
     if answer["fontes"]:
         table = Table(title="Fontes citadas", show_lines=True)
         table.add_column("Nº", justify="right", style="cyan", no_wrap=True)
@@ -142,8 +142,6 @@ def render_answer(answer: dict) -> None:
             table.add_row(source["origem"], source["titulo"], source["url"])
         console.print(table)
     console.print(Text(answer["limite_da_validacao"], style="dim"))
-    if answer.get("motivo_inconclusiva"):
-        console.print(f"[yellow]Por que inconclusiva: {answer['motivo_inconclusiva']}[/yellow]")
     research = answer.get("pesquisa_web")
     if research is not None:
         console.print(f"[dim]Pesquisa web: {research['resultados']} resultados; "
@@ -338,7 +336,7 @@ ACTIONS: dict[str, tuple[str, str, Callable[[], None]]] = {
     "4": ("Descobrir checagens", "Pesquisa URLs candidatas para revisão", discover),
     "5": ("Avaliar recuperação", "Mede hit e MRR com URLs esperadas", evaluate),
     "6": ("Ver estado da base", "Mostra corpus e índice locais", status),
-    "7": ("Avaliar respostas", "Registra vereditos e métricas no MLflow", evaluate_mlflow),
+    "7": ("Avaliar respostas", "Registra análises e métricas no MLflow", evaluate_mlflow),
     "8": ("Benchmark AVeriTeC", "Baixa, prepara, indexa e avalia casos PT-BR", benchmark),
     "9": ("Abrir MLflow", "Inicia o painel com o Python deste ambiente", open_mlflow),
     "10": ("Integrar novos datasets", "Baixa FakeRecogna, X-FACT, Fake.br e fragmenta textos", integrate_datasets),
