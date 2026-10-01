@@ -6,10 +6,6 @@
 respostas para perguntas e passa a concentrar o desenvolvimento em Retrieval
 Augmented Generation (RAG).
 
-Esta decisão substitui a orientação anterior, que tratava o fine-tuning como
-temporariamente pausado. Os experimentos e artefatos existentes permanecem
-como histórico técnico, mas não serão evoluídos nem promovidos para produção.
-
 ## Contexto
 
 O NexoVerdict IA precisa responder perguntas com base em evidências
