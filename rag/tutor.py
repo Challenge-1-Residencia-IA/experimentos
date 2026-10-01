@@ -28,11 +28,19 @@ ANSWER_SCHEMA = {
 }
 
 
-def ask(question: str, store: VectorStore | None = None) -> dict:
+def ask(
+    question: str,
+    store: VectorStore | None = None,
+    *,
+    evidence: list[dict] | None = None,
+    teaching: list[dict] | None = None,
+) -> dict:
     load_dotenv(ROOT / ".env")
     store = store or VectorStore()
-    evidence = store.search(question, "evidencia", limit=6, max_per_source=2)
-    teaching = store.search(question, "educativo", limit=3, max_per_source=2)
+    if evidence is None:
+        evidence = store.search(question, "evidencia", limit=6, max_per_source=2)
+    if teaching is None:
+        teaching = store.search(question, "educativo", limit=3, max_per_source=2)
     items = []
     for index, item in enumerate(evidence + teaching, 1):
         metadata = item["metadata"]
@@ -86,6 +94,23 @@ def validate_answer(payload: dict, items: list[dict]) -> dict:
     cited_in_text = {int(value) for value in re.findall(r"\[(\d+)\]", payload["analise"] + " " + payload["justificativa"])}
     if not cited_in_text.issubset(set(indices)):
         raise ValueError("A resposta contém citação ausente de fontes_usadas")
+    if not any(item["tipo"] == "evidencia" for item in items):
+        payload["veredito"] = "INCONCLUSIVA"
+        payload["como_verificar"] = (
+            "Localize a publicação original, confira autoria e data e identifique quais provas ela apresenta. "
+            "Procure registros primários e checagens independentes sobre a afirmação específica. "
+            "Avalie o contexto completo; imagens isoladas e diferenças de aparência não bastam como prova."
+        )
+        payload["analise"] = (
+            "A base consultada não trouxe documentos de evidência sobre esta alegação. "
+            "Isso não a comprova e não coloca as hipóteses em pé de igualdade."
+        )
+        payload["justificativa"] = (
+            "Não há suporte verificável nesta base para confirmar a alegação. "
+            "O veredito indica uma limitação da consulta local; para classificar o fato, "
+            "é preciso examinar a origem da publicação e checagens ou registros independentes."
+        )
+        payload["fontes_usadas"] = [index for index in indices if items[index - 1]["tipo"] == "educativo"]
     if payload["veredito"] in CONCLUSIVE:
         groups = {
             items[index - 1]["grupo_origem"]

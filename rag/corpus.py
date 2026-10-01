@@ -174,6 +174,10 @@ def ingest(config_path: Path, corpus_path: Path = CORPUS) -> dict[str, int]:
                 location = path.as_uri()
                 raw_path = str(path)
                 detected_date = ""
+            reference_url = entry.get("reference_url")
+            if reference_url and urlparse(reference_url).scheme not in {"http", "https"}:
+                raise ValueError(f"reference_url deve ser HTTP(S): {reference_url}")
+            citation_url = reference_url or location
             if len(text) < 100:
                 raise ValueError("Texto extraído muito curto")
             identifier = stable_id(location)
@@ -186,6 +190,7 @@ def ingest(config_path: Path, corpus_path: Path = CORPUS) -> dict[str, int]:
                 entry.get("title") or title,
                 entry.get("published_at") or detected_date,
                 entry.get("license", "verificar"),
+                citation_url,
             )
             previous_metadata = (
                 previous.get("kind"),
@@ -194,6 +199,7 @@ def ingest(config_path: Path, corpus_path: Path = CORPUS) -> dict[str, int]:
                 previous.get("title"),
                 previous.get("published_at", ""),
                 previous.get("license", "verificar"),
+                previous.get("url"),
             ) if previous else None
             if previous and previous["content_hash"] == digest and previous_metadata == metadata:
                 counts["unchanged"] += 1
@@ -204,7 +210,7 @@ def ingest(config_path: Path, corpus_path: Path = CORPUS) -> dict[str, int]:
                 "kind": kind,
                 "source": source,
                 "origin_group": origin_group,
-                "url": location,
+                "url": citation_url,
                 "title": entry.get("title") or title,
                 "published_at": entry.get("published_at") or detected_date,
                 "collected_at": datetime.now(timezone.utc).isoformat(),

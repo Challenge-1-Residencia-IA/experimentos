@@ -1,6 +1,7 @@
 beautifulsoup4
 chromadb
 feedparser
+mlflow
 pypdf
 python-dotenv
 requests

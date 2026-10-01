@@ -1,0 +1,35 @@
+{
+  "documents": [
+    {"path": "knowledge/leitura_lateral.md", "kind": "educativo", "source": "NexoVerdict", "origin_group": "nexoverdict", "license": "conteúdo próprio"},
+    {"path": "knowledge/evidencias_e_contexto.md", "kind": "educativo", "source": "NexoVerdict", "origin_group": "nexoverdict", "license": "conteúdo próprio"},
+    {
+      "path": "knowledge/ibge_ipca_2025.md",
+      "reference_url": "https://agenciadenoticias.ibge.gov.br/agencia-sala-de-imprensa/2013-agencia-de-noticias/releases/45612-ipca-vai-a-0-33-em-dezembro-e-fecha-o-ano-em-4-26",
+      "kind": "evidencia", "source": "IBGE - Agência de Notícias", "origin_group": "ibge",
+      "title": "IPCA fecha 2025 em 4,26%", "published_at": "2026-01-09",
+      "license": "ficha original NexoVerdict com atribuição ao IBGE"
+    },
+    {
+      "path": "knowledge/ibge_pnad_2025.md",
+      "reference_url": "https://agenciadenoticias.ibge.gov.br/agencia-sala-de-imprensa/2013-agencia-de-noticias/releases/45759-pnad-continua-em-2025-taxa-anual-de-desocupacao-foi-de-5-6-enquanto-taxa-de-subutilizacao-foi-14-5",
+      "kind": "evidencia", "source": "IBGE - Agência de Notícias", "origin_group": "ibge",
+      "title": "PNAD Contínua: desocupação anual em 2025",
+      "license": "ficha original NexoVerdict com atribuição ao IBGE"
+    },
+    {
+      "path": "knowledge/ibge_internet_2025.md",
+      "reference_url": "https://agenciadenoticias.ibge.gov.br/agencia-noticias/2012-agencia-de-noticias/noticias/47408-proporcao-de-usuarios-da-internet-no-pais-ultrapassou-90-da-populacao-de-10-anos-ou-mais-em-2025",
+      "kind": "evidencia", "source": "IBGE - Agência de Notícias", "origin_group": "ibge",
+      "title": "Uso da internet pela população em 2025", "published_at": "2026-07-02",
+      "license": "ficha original NexoVerdict com atribuição ao IBGE"
+    },
+    {
+      "path": "knowledge/ibge_populacao_2025.md",
+      "reference_url": "https://agenciadenoticias.ibge.gov.br/agencia-noticias/2012-agencia-de-noticias/noticias/44305-populacao-estimada-do-pais-chega-a-213-4-milhoes-de-habitantes-em-2025",
+      "kind": "evidencia", "source": "IBGE - Agência de Notícias", "origin_group": "ibge",
+      "title": "População estimada do Brasil em 2025", "published_at": "2025-08-28",
+      "license": "ficha original NexoVerdict com atribuição ao IBGE"
+    }
+  ],
+  "feeds": []
+}

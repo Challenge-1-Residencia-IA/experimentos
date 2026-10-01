@@ -22,14 +22,25 @@ descobrir checagens e avaliar a recuperação. Os comandos individuais também
 continuam disponíveis:
 
 ```bash
-python -m scripts.coletar_rag --config sources.example.json
+python -m scripts.coletar_rag --config sources.json
 python -m scripts.indexar_rag
 python -m scripts.perguntar_rag "Como posso verificar uma notícia?"
+python -m scripts.avaliar_rag_mlflow docs/casos_avaliacao_exemplo.jsonl
+python -m scripts.testar_benchmark_averitec --per-class 10
 ```
 
-O exemplo indexa dois guias educativos próprios. Para verificar fatos, inclua
-documentos do tipo `evidencia` no arquivo de fontes e repita a coleta e a
-indexação. Até lá, a tutora deve responder com veredito `INCONCLUSIVA`.
+O `sources.json` inicial reúne dois guias educativos e quatro fichas factuais
+com links para publicações do IBGE. Use as opções 1 e 2 para coletar e indexar
+novas fontes. Esse conjunto cobre apenas os temas das fichas; para outras
+alegações, acrescente evidências específicas e atualizadas.
+
+Para acompanhar avaliações, use a opção 9 do menu ou execute
+`.venv/bin/python -m mlflow ui --backend-store-uri "sqlite:///$(pwd)/mlflow.db"`
+e abra `http://127.0.0.1:5000`. O exemplo de
+avaliação mostra a lacuna factual da base inicial; as métricas de veredito e
+recuperação só ficam úteis com casos revisados e evidências indexadas.
+O benchmark AVeriTeC usa dados e índice separados da base principal; veja
+[docs/RAG_TUTORA.md](docs/RAG_TUTORA.md) para o protocolo e as limitações.
 
 O guia completo de fontes, formatos, atualização incremental e avaliação está
 em [docs/RAG_TUTORA.md](docs/RAG_TUTORA.md). Dados e índice vetorial são
