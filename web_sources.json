@@ -1,0 +1,21 @@
+{
+  "conclusive_domains": [
+    "gov.br",
+    "ibge.gov.br",
+    "tse.jus.br",
+    "stf.jus.br",
+    "senado.leg.br",
+    "camara.leg.br",
+    "who.int",
+    "paho.org",
+    "reuters.com",
+    "apnews.com",
+    "bbc.com",
+    "g1.globo.com",
+    "agenciabrasil.ebc.com.br"
+  ],
+  "blocked_automated_domains": [
+    "agencialupa.org",
+    "aosfatos.org"
+  ]
+}

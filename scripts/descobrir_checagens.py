@@ -9,11 +9,27 @@ import requests
 from dotenv import load_dotenv
 
 
+def _api_error(response: requests.Response, api_key: str) -> ValueError:
+    try:
+        payload = response.json()
+        detail = payload.get("error", {}).get("message", "") if isinstance(payload, dict) else ""
+    except ValueError:
+        detail = ""
+    detail = str(detail).replace(api_key, "[chave ocultada]").strip()[:500]
+    if not detail:
+        detail = "A API não informou o motivo."
+    return ValueError(
+        f"Google Fact Check Tools API retornou HTTP {response.status_code}: {detail} "
+        "Confira se FACT_CHECK_API_KEY é uma chave válida do Google Cloud e se "
+        "a Fact Check Tools API está ativada no projeto."
+    )
+
+
 def discover_claims(consulta: str, paginas: int = 1, saida: Path = Path("data/candidatas_checagens.jsonl")) -> int:
-    load_dotenv()
-    api_key = os.getenv("FACT_CHECK_API_KEY")
-    if not api_key:
-        raise ValueError("Defina FACT_CHECK_API_KEY no arquivo .env")
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    api_key = os.getenv("FACT_CHECK_API_KEY", "").strip()
+    if not api_key or api_key.lower() in {"sua_chave_aqui", "your_api_key", "..."}:
+        raise ValueError("Defina uma chave válida em FACT_CHECK_API_KEY no arquivo .env")
     if not 1 <= paginas <= 10:
         raise ValueError("paginas deve estar entre 1 e 10")
     saida.parent.mkdir(parents=True, exist_ok=True)
@@ -37,7 +53,7 @@ def discover_claims(consulta: str, paginas: int = 1, saida: Path = Path("data/ca
             except requests.RequestException:
                 raise RuntimeError("Falha de conexão com a API de checagens") from None
             if not response.ok:
-                raise RuntimeError(f"A API de checagens retornou HTTP {response.status_code}")
+                raise _api_error(response, api_key)
             result = response.json()
             for claim in result.get("claims", []):
                 for review in claim.get("claimReview", []):

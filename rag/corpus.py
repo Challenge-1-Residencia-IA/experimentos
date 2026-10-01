@@ -227,13 +227,22 @@ def ingest(config_path: Path, corpus_path: Path = CORPUS) -> dict[str, int]:
     return counts
 
 
-def chunks(text: str, max_words: int = 180, overlap: int = 30) -> list[str]:
-    if max_words <= overlap or overlap < 0:
-        raise ValueError("max_words deve ser maior que overlap")
-    words = text.split()
-    step = max_words - overlap
-    return [
-        " ".join(words[start:start + max_words])
-        for start in range(0, len(words), step)
-        if start == 0 or len(words) - start > overlap
-    ]
+def chunks(
+    text: str,
+    max_words: int = 180,
+    overlap: int = 30,
+    title: str = "",
+    source: str = "",
+    inject_context: bool = False,
+) -> list[str]:
+    """Fragmenta texto usando divisor recursivo semântico e respeitando pontuação."""
+    from rag.splitter import split_large_text
+
+    return split_large_text(
+        text,
+        max_words=max_words,
+        overlap=overlap,
+        title=title,
+        source=source,
+        inject_context=inject_context,
+    )

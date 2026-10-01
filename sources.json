@@ -31,5 +31,15 @@
       "license": "ficha original NexoVerdict com atribuição ao IBGE"
     }
   ],
-  "feeds": []
+  "feeds": [
+    {
+      "url": "https://agenciadenoticias.ibge.gov.br/agencia-rss",
+      "kind": "evidencia",
+      "source": "IBGE - Agência de Notícias",
+      "origin_group": "ibge",
+      "license": "Agência de Notícias IBGE: reprodução permitida com atribuição",
+      "usage_approved": true,
+      "limit": 10
+    }
+  ]
 }

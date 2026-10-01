@@ -74,6 +74,11 @@ principal e navegação.
 Para descobrir checagens, configure `FACT_CHECK_API_KEY` em `.env` e execute
 `python -m scripts.descobrir_checagens "tema"`. O comando salva URLs candidatas
 em `data/candidatas_checagens.jsonl`; ele não indexa o conteúdo dessas páginas.
+Essa chave deve ser uma chave de API de um projeto Google Cloud com a
+**Fact Check Tools API** ativada. Se a API responder HTTP 400 ou 403, o comando
+mostra a mensagem devolvida pelo Google para ajudar a identificar chave
+inválida, API não ativada ou restrições da chave. A opção 3 do menu, para
+conversar e analisar links com pesquisa na web, não usa essa chave.
 Revise a fonte, a licença e a origem das evidências antes de adicioná-las ao
 arquivo de fontes. A avaliação de um veículo não substitui uma checagem
 independente da alegação.
@@ -82,8 +87,76 @@ independente da alegação.
 
 Abra o menu interativo na raiz do repositório com `python main.py`. Ele mostra
 o estado local e reúne coleta, indexação, conversa, descoberta de checagens e
-avaliação. Após a instalação, a sequência inicial é usar a opção 1 com
-`sources.json`, a opção 2 para indexar e a opção 3 para conversar.
+avaliação. Para incluir os guias educativos locais, use a opção 1 com
+`sources.json` e a opção 2 para indexar. A opção 3 já pode pesquisar na web
+com o índice vazio; ela abre uma conversa contínua até digitar `sair`.
+Ao abrir essa opção, o programa também coleta e indexa automaticamente as
+fontes de `sources.json` se passaram 24 horas desde a última atualização ou
+se a configuração mudou. Se a coleta falhar, a conversa continua com as
+fontes disponíveis e a próxima abertura tenta novamente. Essa atualização
+acontece enquanto o menu é usado; não há um serviço rodando com o programa
+fechado. O arquivo `data/rag_auto_refresh.json` guarda o horário da última
+atualização concluída. As opções 1 e 2 continuam disponíveis para uma
+atualização imediata.
+
+O `sources.json` inclui o [feed RSS da Agência de Notícias IBGE](https://agenciadenoticias.ibge.gov.br/agencia-rss),
+com até 10 publicações por atualização. A [licença da agência](https://agenciadenoticias.ibge.gov.br/agencia-sala-de-imprensa/2080-agencia-de-noticias/an-artigos-diversos/9277-licenca.html)
+permite reprodução com atribuição. Todos esses textos compartilham a mesma
+origem factual `ibge`, portanto não contam como confirmações independentes.
+Para incluir outros feeds, verifique antes as condições de acesso e uso.
+Atualizar o índice acrescenta conhecimento recuperável ao RAG; o Qwen não
+aprende novos pesos com essa operação.
+
+### Pesquisa na web e links
+
+A conversa pesquisa com [`ddgs`](https://github.com/deedy5/ddgs) e lê cada
+página permitida com [`trafilatura`](https://trafilatura.readthedocs.io/en/latest/quickstart.html).
+Não é necessária uma chave de busca. O navegador local do usuário ou o Ollama
+não fazem a pesquisa: o código Python seleciona e envia ao Qwen somente
+trechos das páginas efetivamente lidas. Resultados que retornam apenas título
+e resumo não viram evidência. PDFs textuais também são aceitos.
+
+Ao enviar somente um link, o Qwen extrai uma afirmação factual central do
+conteúdo e a pesquisa procura outras fontes. Se houver várias alegações na
+página, envie também a afirmação específica que deseja verificar. A página
+enviada é mostrada como origem da alegação, sem contar como prova de si mesma.
+Perguntas educativas podem receber `NAO_APLICAVEL` no campo de veredito.
+
+O arquivo `web_sources.json` lista domínios que podem contribuir para um
+veredito conclusivo. A lista é uma triagem inicial, não uma certificação de
+verdade. A validação ainda exige duas origens qualificadas, distintas e
+citadas. Outros sites podem aparecer como contexto, mas sozinhos não permitem
+um veredito conclusivo. Domínios em `blocked_automated_domains` não são
+baixados; revise as condições de acesso antes de alterar essa lista. Quando
+um link não puder ser lido, a tutora informa a falha ou a quantidade de
+páginas ignoradas. A coleta pontual da conversa não adiciona páginas ao
+índice permanente.
+
+Na opção 3, a pesquisa faz uma segunda consulta com termos de checagem quando
+a primeira não traz duas origens qualificadas. Ela combina os trechos das
+páginas lidas com evidências pertinentes do índice local. Materiais educativos
+continuam separados das evidências factuais. O resultado mostra quantas
+páginas foram lidas, quantas origens web qualificadas foram encontradas e
+quantas evidências locais entraram na análise. Se o veredito for
+`INCONCLUSIVA`, a tela informa se faltaram fontes ou se os trechos não
+sustentaram uma conclusão. O domínio de uma fonte é apenas uma triagem:
+duas páginas que repetem a mesma apuração não devem contar como confirmação
+independente, mesmo quando aparecem em veículos diferentes.
+
+Use, por exemplo:
+
+```bash
+python main.py --opcao 3
+python -m scripts.perguntar_rag "É verdade que a alegação X aconteceu?"
+python -m scripts.perguntar_rag "https://exemplo.org/noticia"
+```
+
+Buscadores e publicadores externos podem limitar requisições, bloquear
+leitura automática ou exigir JavaScript. O programa não oferece garantia de
+busca ilimitada. Quando não obtém evidência suficiente, responde
+`INCONCLUSIVA` e mostra o limite da consulta. Antes de usar vereditos como
+produto público, revise manualmente pertinência dos trechos, independência
+factual das fontes e datas das publicações.
 
 Os comandos individuais continuam disponíveis na raiz do repositório:
 
@@ -91,6 +164,7 @@ Os comandos individuais continuam disponíveis na raiz do repositório:
 python -m scripts.coletar_rag --config sources.json
 python -m scripts.indexar_rag
 python -m scripts.perguntar_rag "Como posso verificar esta notícia?"
+python -m scripts.perguntar_rag --local "Pergunta sobre o índice local"
 ```
 
 O coletor grava `data/documents.jsonl`, com URL, título, origem, data de coleta,
@@ -207,3 +281,31 @@ resultados como benchmark local de pesquisa e complemente depois com casos
 brasileiros recentes revisados por pessoas. `Conflicting
 Evidence/Cherrypicking` fica fora da amostra porque não corresponde de forma
 segura a um único veredito da tutora.
+
+## Integração de Datasets Externos e Fragmentação Inteligente (Chunking)
+
+Para expandir o corpus com bases factuais abertas e gratuitas de checagem em português:
+
+- **FakeRecogna (Hugging Face / recogna-nlp/FakeRecogna):** 11.902 amostras com checagens de agências (Aos Fatos, Boatos.org, E-farsas, UOL Confere, AFP Checamos, Projeto Comprova) e notícias factuais de portais (G1, UOL, Ministério da Saúde). Licença MIT.
+- **X-FACT (Hugging Face / utahnlp/x-fact - split PT):** Declarações reais brasileiras com evidências recuperadas via buscas no Google. Licença MIT.
+- **AVeriTeC PT-BR:** Pares de perguntas e respostas de evidência com URLs e vereditos. Licença CC BY-NC 4.0.
+- **Fake.br Corpus (USP):** Notícias completas verdadeiras e falsas alinhadas para treinamento e validação.
+
+### Como executar a integração
+
+Use o script `scripts/integrar_datasets.py` ou a opção `10` do menu interativo (`main.py`):
+
+```bash
+# Integrar 50 itens de cada dataset público e fragmentar textos grandes
+.venv/bin/python scripts/integrar_datasets.py --dataset todos --limit 50 --inject-context
+
+# Atualizar o banco vetorial com os novos trechos
+.venv/bin/python scripts/indexar_rag.py
+```
+
+### Divisor Recursivo Semântico (`rag/splitter.py`)
+
+O módulo `rag/splitter.py` implementa `RecursiveTextSplitter`:
+1. Respeita a estrutura hierárquica (títulos Markdown, quebras de parágrafo, sentenças com pontuação terminal e palavras), evitando que orações ou números fiquem cortados.
+2. Suporta injeção de contexto (`[Documento: <Título> | Fonte: <Origem>]`) no início de cada chunk para enriquecer a similaridade semântica dos embeddings.
+3. Remove ruídos automáticos de web (botões de compartilhamento, scripts e rodapés de sites).

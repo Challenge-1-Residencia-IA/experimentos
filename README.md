@@ -17,14 +17,30 @@ ollama pull qwen2.5:7b
 python main.py
 ```
 
-O menu permite coletar documentos, atualizar o banco, conversar com a tutora,
-descobrir checagens e avaliar a recuperação. Os comandos individuais também
-continuam disponíveis:
+No menu, a opção **3** abre uma conversa contínua: digite uma alegação, uma
+pergunta ou cole um link. A tutora pesquisa com `ddgs`, lê páginas com
+`trafilatura`, recupera trechos pertinentes e usa o Qwen para explicar a
+checagem. Digite `sair` para voltar ao menu. A busca não exige chave de API,
+mas pode sofrer limites ou bloqueios impostos por sites externos.
+
+Ao abrir a opção **3**, o programa também verifica se passou um dia desde a
+última atualização da base ou se `sources.json` mudou. Nesse caso, coleta as
+fontes configuradas e atualiza o índice automaticamente. O `sources.json`
+inclui um feed RSS da Agência de Notícias IBGE, limitado aos 10 itens
+disponíveis no feed. A pesquisa da conversa continua buscando outras fontes
+atuais na web. Para forçar uma atualização imediata, use as opções **1** e
+**2**. Isso atualiza os documentos e embeddings do RAG; não altera os pesos
+do Qwen nem é treinamento do modelo.
+
+O menu também permite coletar documentos, atualizar o banco, descobrir
+checagens e avaliar a recuperação. Os comandos individuais continuam disponíveis:
 
 ```bash
 python -m scripts.coletar_rag --config sources.json
 python -m scripts.indexar_rag
 python -m scripts.perguntar_rag "Como posso verificar uma notícia?"
+python -m scripts.perguntar_rag "É verdade que ...?"
+python -m scripts.perguntar_rag "https://exemplo.org/noticia"
 python -m scripts.avaliar_rag_mlflow docs/casos_avaliacao_exemplo.jsonl
 python -m scripts.testar_benchmark_averitec --per-class 10
 ```
@@ -32,7 +48,10 @@ python -m scripts.testar_benchmark_averitec --per-class 10
 O `sources.json` inicial reúne dois guias educativos e quatro fichas factuais
 com links para publicações do IBGE. Use as opções 1 e 2 para coletar e indexar
 novas fontes. Esse conjunto cobre apenas os temas das fichas; para outras
-alegações, acrescente evidências específicas e atualizadas.
+alegações, a pesquisa durante a conversa busca páginas atuais. As fontes
+locais continuam úteis para ensinar o método e cobrir informações já revisadas.
+O arquivo `web_sources.json` controla quais domínios podem contribuir para
+um veredito conclusivo e quais não são coletados automaticamente.
 
 Para acompanhar avaliações, use a opção 9 do menu ou execute
 `.venv/bin/python -m mlflow ui --backend-store-uri "sqlite:///$(pwd)/mlflow.db"`

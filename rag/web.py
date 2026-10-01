@@ -1,0 +1,221 @@
+"""Busca gratuita e leitura limitada de páginas para a conversa RAG."""
+
+from __future__ import annotations
+
+import ipaddress
+import json
+import re
+import socket
+from functools import lru_cache
+from io import BytesIO
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
+
+import requests
+import trafilatura
+from ddgs import DDGS
+from pypdf import PdfReader
+
+from rag.corpus import chunks, stable_id
+
+URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+MAX_BYTES = 5_000_000
+MAX_PAGES = 6
+SEARCH_RESULTS = 12
+USER_AGENT = "NexoVerdict/0.2 (educational fact checking)"
+POLICY_PATH = Path(__file__).resolve().parents[1] / "web_sources.json"
+MULTIPART_SUFFIXES = {"com.br", "gov.br", "org.br", "jus.br", "leg.br", "co.uk", "com.au"}
+
+
+@lru_cache(maxsize=1)
+def source_policy() -> dict:
+    return json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+
+
+def matches_domain(url: str, domains: list[str]) -> bool:
+    host = (urlparse(url).hostname or "").lower().rstrip(".")
+    return any(host == domain or host.endswith("." + domain) for domain in domains)
+
+
+def split_input(message: str) -> tuple[str, str | None]:
+    match = URL_PATTERN.search(message)
+    if not match:
+        return message.strip(), None
+    url = match.group().rstrip(".,;:!?)]}")
+    return (message[:match.start()] + message[match.end():]).strip(), url
+
+
+def origin_group(url: str) -> str:
+    host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+    if host == "ibge.gov.br" or host.endswith(".ibge.gov.br"):
+        return "ibge"
+    labels = host.split(".")
+    if len(labels) >= 3 and ".".join(labels[-2:]) in MULTIPART_SUFFIXES:
+        return ".".join(labels[-3:])
+    return ".".join(labels[-2:]) if len(labels) >= 2 else host
+
+
+def check_public_url(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Informe uma URL pública HTTP(S) válida")
+    if parsed.port not in {None, 80, 443}:
+        raise ValueError("Porta da URL não permitida")
+    host = parsed.hostname.lower().rstrip(".")
+    if host == "localhost" or host.endswith(".localhost") or host.endswith(".local"):
+        raise ValueError("Endereço local não permitido")
+    try:
+        addresses = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80),
+                                       type=socket.SOCK_STREAM)
+    except socket.gaierror as error:
+        raise ValueError(f"Não foi possível resolver o domínio: {host}") from error
+    if not addresses or any(not ipaddress.ip_address(item[4][0]).is_global for item in addresses):
+        raise ValueError("A URL resolve para endereço não público")
+
+
+def read_page(url: str) -> dict:
+    """Baixa HTML, PDF ou texto. Confere URLs a cada redirecionamento."""
+    current = url
+    for _ in range(5):
+        check_public_url(current)
+        if matches_domain(current, source_policy()["blocked_automated_domains"]):
+            raise ValueError("Coleta automatizada não habilitada para este publicador")
+        response = requests.get(current, headers={"User-Agent": USER_AGENT}, timeout=(5, 15),
+                                allow_redirects=False, stream=True)
+        if response.is_redirect:
+            target = urljoin(current, response.headers.get("Location", ""))
+            response.close()
+            if target == current:
+                raise ValueError("Redirecionamento inválido")
+            current = target
+            continue
+        try:
+            response.raise_for_status()
+            content_type = response.headers.get("Content-Type", "").lower()
+            if not any(value in content_type for value in ("text/html", "application/pdf", "text/plain")):
+                raise ValueError(f"Tipo de página não suportado: {content_type or 'desconhecido'}")
+            parts = []
+            size = 0
+            for part in response.iter_content(chunk_size=65536):
+                size += len(part)
+                if size > MAX_BYTES:
+                    raise ValueError("Página maior que 5 MB")
+                parts.append(part)
+            raw = b"".join(parts)
+            title = urlparse(current).path.rsplit("/", 1)[-1] or origin_group(current)
+            date = ""
+            if "pdf" in content_type:
+                reader = PdfReader(BytesIO(raw))
+                text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
+            elif "html" in content_type:
+                html = raw.decode(response.encoding or "utf-8", errors="replace")
+                text = trafilatura.extract(html, include_comments=False, include_tables=True) or ""
+                metadata = trafilatura.extract_metadata(html)
+                if metadata:
+                    title = metadata.title or title
+                    date = metadata.date or ""
+            else:
+                text = raw.decode(response.encoding or "utf-8", errors="replace")
+            text = re.sub(r"\n{3,}", "\n\n", text).strip()
+            if len(text) < 100:
+                raise ValueError("A página não forneceu texto suficiente para checagem")
+            return {"url": current, "title": title, "date": date, "text": text[:30000],
+                    "origin_group": origin_group(current)}
+        finally:
+            response.close()
+    raise ValueError("Redirecionamentos em excesso")
+
+
+class WebResearcher:
+    def __init__(self) -> None:
+        self.pages: dict[str, dict] = {}
+        self.searches: dict[str, list[dict]] = {}
+
+    def page(self, url: str) -> dict:
+        if url not in self.pages:
+            self.pages[url] = read_page(url)
+        return self.pages[url]
+
+    def search(self, query: str) -> list[dict]:
+        query = query.strip()[:300]
+        if not query:
+            return []
+        if query not in self.searches:
+            self.searches[query] = DDGS(timeout=10).text(
+                query, region="br-pt", safesearch="moderate", max_results=SEARCH_RESULTS
+            ) or []
+        return self.searches[query]
+
+    def research(self, query: str, *, exclude_url: str | None = None,
+                 exclude_group: str | None = None) -> tuple[list[dict], dict]:
+        diagnostics = {"busca": query, "consultas": [], "resultados": 0, "paginas_lidas": 0,
+                       "fontes_qualificadas": 0,
+                       "paginas_ignoradas": [], "erro_busca": ""}
+        documents = []
+        groups = set()
+        preferred = source_policy()["conclusive_domains"]
+        for query_number, search_query in enumerate((query, f"{query} checagem de fatos")):
+            if len(documents) >= MAX_PAGES or diagnostics["fontes_qualificadas"] >= 2:
+                break
+            page_limit = MAX_PAGES - 2 if query_number == 0 else MAX_PAGES
+            try:
+                results = self.search(search_query)
+            except Exception as error:  # Falhas externas do buscador não impedem usar outras fontes.
+                diagnostics["erro_busca"] = f"{type(error).__name__}: {str(error)[:160]}"
+                continue
+            diagnostics["consultas"].append(search_query[:300])
+            diagnostics["resultados"] += len(results)
+            results = sorted(results, key=lambda item: matches_domain(item.get("href") or item.get("url") or "", preferred),
+                             reverse=True)
+            for result in results:
+                url = result.get("href") or result.get("url") or ""
+                if not url or url == exclude_url:
+                    continue
+                try:
+                    page = self.page(url)
+                except Exception as error:  # Parser e sites externos podem falhar de formas diferentes.
+                    diagnostics["paginas_ignoradas"].append(
+                        {"url": url, "motivo": f"{type(error).__name__}: {str(error)[:100]}"}
+                    )
+                    continue
+                if page["origin_group"] in groups or page["origin_group"] == exclude_group or page["url"] == exclude_url:
+                    continue
+                groups.add(page["origin_group"])
+                documents.append(page)
+                if matches_domain(page["url"], preferred):
+                    diagnostics["fontes_qualificadas"] += 1
+                if len(documents) >= page_limit or diagnostics["fontes_qualificadas"] >= 2:
+                    break
+        diagnostics["paginas_lidas"] = len(documents)
+        return documents, diagnostics
+
+
+def passages(query: str, documents: list[dict], encoder, *, limit: int = 6) -> list[dict]:
+    """Seleciona um trecho relevante por página, mantendo origens distintas."""
+    if not documents:
+        return []
+    parts = []
+    for page in documents:
+        for part in chunks(page["text"], max_words=160, overlap=25)[:80]:
+            parts.append((page, part))
+    query_vector = encoder.encode([f"query: {query}"], normalize_embeddings=True)[0]
+    vectors = encoder.encode([f"passage: {part}" for _, part in parts],
+                             normalize_embeddings=True, batch_size=32)
+    scored = sorted(((float(query_vector @ vector), page, part)
+                     for (page, part), vector in zip(parts, vectors)), reverse=True, key=lambda item: item[0])
+    selected = []
+    groups = set()
+    for score, page, part in scored:
+        group = page["origin_group"]
+        if group in groups:
+            continue
+        groups.add(group)
+        selected.append({"id": stable_id(page["url"] + part), "text": part,
+                         "distance": 1 - score,
+                         "metadata": {"kind": "evidencia", "source": group,
+                                      "origin_group": group, "title": page["title"],
+                                      "url": page["url"], "published_at": page["date"],
+                                      "conclusive_eligible": matches_domain(page["url"], source_policy()["conclusive_domains"])}})
+        if len(selected) >= limit:
+            break
+    return selected

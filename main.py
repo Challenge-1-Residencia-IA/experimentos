@@ -106,7 +106,12 @@ def render_answer(answer: dict) -> None:
         "FALSA": "red",
         "ENGANOSA": "yellow",
         "INCONCLUSIVA": "magenta",
+        "NAO_APLICAVEL": "cyan",
     }.get(verdict, "white")
+    if answer.get("alegacao_verificada"):
+        console.print(Panel(Text(answer["alegacao_verificada"]), title="Alegação investigada", border_style="cyan"))
+    if answer.get("fonte_enviada"):
+        console.print(f"[dim]Publicação enviada: {answer['fonte_enviada']['url']}[/dim]")
     console.print(Panel(Text(answer["como_verificar"]), title="Como verificar", border_style="cyan"))
     console.print(Panel(Text(answer["analise"]), title="Análise das evidências", border_style="blue"))
     console.print(Panel(Text(answer["justificativa"]), title=f"Veredito: {verdict}", border_style=style))
@@ -126,22 +131,70 @@ def render_answer(answer: dict) -> None:
                 Text(source["url"]),
             )
         console.print(table)
+    consulted = [item for item in answer.get("fontes_consultadas", [])
+                 if item["url"] not in {source["url"] for source in answer["fontes"]}]
+    if consulted:
+        table = Table(title="Evidências recuperadas, não citadas na conclusão", show_lines=True)
+        table.add_column("Origem")
+        table.add_column("Título")
+        table.add_column("URL", overflow="fold")
+        for source in consulted:
+            table.add_row(source["origem"], source["titulo"], source["url"])
+        console.print(table)
     console.print(Text(answer["limite_da_validacao"], style="dim"))
+    if answer.get("motivo_inconclusiva"):
+        console.print(f"[yellow]Por que inconclusiva: {answer['motivo_inconclusiva']}[/yellow]")
+    research = answer.get("pesquisa_web")
+    if research is not None:
+        console.print(f"[dim]Pesquisa web: {research['resultados']} resultados; "
+                      f"{research['paginas_lidas']} páginas lidas; "
+                      f"{research.get('fontes_qualificadas', 0)} fontes qualificadas; "
+                      f"{research.get('evidencias_locais', 0)} evidências locais.[/dim]")
+        if research.get("erro_busca"):
+            console.print(f"[yellow]Busca indisponível: {research['erro_busca']}[/yellow]")
+        if research.get("paginas_ignoradas"):
+            console.print(f"[dim]{len(research['paginas_ignoradas'])} páginas não puderam ser lidas.[/dim]")
 
 
 def talk() -> None:
-    if not INDEX.exists():
-        console.print("[yellow]O banco vetorial ainda não existe. Use as opções 1 e 2 primeiro.[/yellow]")
-        return
-    question = Prompt.ask("Pergunta ou alegação").strip()
-    if not question:
-        console.print("[yellow]Digite uma pergunta para continuar.[/yellow]")
-        return
-    from rag.tutor import ask
+    from rag.auto_refresh import refresh_if_due
+    from rag.store import VectorStore
+    from rag.tutor import ask_online
+    from rag.web import WebResearcher
 
-    with console.status("Buscando fontes e preparando a explicação...", spinner="dots"):
-        answer = ask(question)
-    render_answer(answer)
+    store = VectorStore()
+    try:
+        with console.status("Atualizando fontes e banco vetorial, se necessário...", spinner="dots"):
+            refresh = refresh_if_due(store, default_config())
+        if refresh is not None:
+            collected = refresh["collected"]
+            console.print(
+                f"[green]Base atualizada:[/green] {collected['new']} novos, "
+                f"{collected['updated']} alterados, {collected['failed']} falhas."
+            )
+            if collected["failed"]:
+                console.print("[yellow]Algumas fontes falharam; a próxima conversa tentará novamente.[/yellow]")
+    except Exception as error:
+        console.print(f"[yellow]Atualização automática indisponível: {error}. "
+                      "A conversa continuará com as fontes disponíveis.[/yellow]")
+    researcher = WebResearcher()
+    history: list[dict] = []
+    console.print("[dim]Envie uma pergunta, alegação ou link. Digite 'sair' para voltar ao menu.[/dim]")
+    while True:
+        question = Prompt.ask("Você").strip()
+        if question.casefold() in {"sair", "voltar", "exit"}:
+            return
+        if not question:
+            continue
+        try:
+            with console.status("Pesquisando na web e lendo fontes...", spinner="dots"):
+                answer = ask_online(question, researcher, store=store, history=history)
+        except Exception as error:
+            console.print(f"[red]Não foi possível investigar:[/red] {type(error).__name__}: {error}")
+            continue
+        render_answer(answer)
+        history.append({"pergunta": answer.get("alegacao_verificada", question),
+                        "resposta": answer["analise"][:500]})
 
 
 def discover() -> None:
@@ -244,16 +297,51 @@ def open_mlflow() -> None:
             console.print(f"[red]MLflow terminou com código {result.returncode}.[/red]")
 
 
+def integrate_datasets() -> None:
+    dataset = Prompt.ask(
+        "Qual dataset integrar?",
+        choices=["todos", "fakerecogna", "xfact", "averitec", "fakebr"],
+        default="todos",
+    )
+    limit = IntPrompt.ask("Limite de registros por fonte", default=40)
+    max_words = IntPrompt.ask("Máximo de palavras por chunk", default=180)
+    overlap = IntPrompt.ask("Sobreposição (overlap) de palavras", default=35)
+    inject = Prompt.ask("Injetar cabeçalho de título e fonte nos chunks? (s/n)", default="s").lower() == "s"
+
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "integrar_datasets.py"),
+        "--dataset",
+        dataset,
+        "--limit",
+        str(limit),
+        "--max-words",
+        str(max_words),
+        "--overlap",
+        str(overlap),
+    ]
+    if inject:
+        command.append("--inject-context")
+
+    console.print(Panel(" ".join(command), title="Integrar Datasets e Fragmentar", border_style="cyan"))
+    result = subprocess.run(command, cwd=ROOT, check=False)
+    if result.returncode:
+        console.print(f"[red]Processamento encerrou com código {result.returncode}.[/red]")
+    else:
+        console.print("[green]Integração concluída! Use a opção 2 para reindexar o banco vetorial.[/green]")
+
+
 ACTIONS: dict[str, tuple[str, str, Callable[[], None]]] = {
     "1": ("Coletar documentos", "Baixa e normaliza as fontes configuradas", collect),
     "2": ("Atualizar banco vetorial", "Gera embeddings e indexa os documentos", index),
-    "3": ("Conversar com a tutora", "Busca evidências e explica a checagem", talk),
+    "3": ("Conversar com a tutora", "Pesquisa na web, lê links e explica a checagem", talk),
     "4": ("Descobrir checagens", "Pesquisa URLs candidatas para revisão", discover),
     "5": ("Avaliar recuperação", "Mede hit e MRR com URLs esperadas", evaluate),
     "6": ("Ver estado da base", "Mostra corpus e índice locais", status),
     "7": ("Avaliar respostas", "Registra vereditos e métricas no MLflow", evaluate_mlflow),
     "8": ("Benchmark AVeriTeC", "Baixa, prepara, indexa e avalia casos PT-BR", benchmark),
     "9": ("Abrir MLflow", "Inicia o painel com o Python deste ambiente", open_mlflow),
+    "10": ("Integrar novos datasets", "Baixa FakeRecogna, X-FACT, Fake.br e fragmenta textos", integrate_datasets),
 }
 
 
