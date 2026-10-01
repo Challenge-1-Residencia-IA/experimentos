@@ -71,7 +71,12 @@ independente da alegação.
 
 ## Execução
 
-Execute os comandos na raiz do repositório:
+Abra o menu interativo na raiz do repositório com `python main.py`. Ele mostra
+o estado local e reúne coleta, indexação, conversa, descoberta de checagens e
+avaliação. Após a instalação, a sequência inicial é usar a opção 1 com
+`sources.example.json`, a opção 2 para indexar e a opção 3 para conversar.
+
+Os comandos individuais continuam disponíveis na raiz do repositório:
 
 ```bash
 python -m scripts.coletar_rag --config sources.json

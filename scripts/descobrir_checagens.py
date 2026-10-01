@@ -9,35 +9,33 @@ import requests
 from dotenv import load_dotenv
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("consulta", help="Termo ou alegação a pesquisar")
-    parser.add_argument("--paginas", type=int, default=1)
-    parser.add_argument("--saida", type=Path, default=Path("data/candidatas_checagens.jsonl"))
-    args = parser.parse_args()
+def discover_claims(consulta: str, paginas: int = 1, saida: Path = Path("data/candidatas_checagens.jsonl")) -> int:
     load_dotenv()
     api_key = os.getenv("FACT_CHECK_API_KEY")
     if not api_key:
-        parser.error("Defina FACT_CHECK_API_KEY no ambiente")
-    if not 1 <= args.paginas <= 10:
-        parser.error("--paginas deve estar entre 1 e 10")
-    args.saida.parent.mkdir(parents=True, exist_ok=True)
+        raise ValueError("Defina FACT_CHECK_API_KEY no arquivo .env")
+    if not 1 <= paginas <= 10:
+        raise ValueError("paginas deve estar entre 1 e 10")
+    saida.parent.mkdir(parents=True, exist_ok=True)
     seen = set()
-    if args.saida.exists():
-        with args.saida.open(encoding="utf-8") as existing:
+    if saida.exists():
+        with saida.open(encoding="utf-8") as existing:
             seen = {json.loads(line)["url"] for line in existing if line.strip()}
     added = 0
     page_token = None
-    with args.saida.open("a", encoding="utf-8") as output:
-        for _ in range(args.paginas):
-            params = {"query": args.consulta, "languageCode": "pt", "pageSize": 100, "key": api_key}
+    with saida.open("a", encoding="utf-8") as output:
+        for _ in range(paginas):
+            params = {"query": consulta, "languageCode": "pt", "pageSize": 100, "key": api_key}
             if page_token:
                 params["pageToken"] = page_token
-            response = requests.get(
-                "https://factchecktools.googleapis.com/v1alpha1/claims:search",
-                params=params,
-                timeout=30,
-            )
+            try:
+                response = requests.get(
+                    "https://factchecktools.googleapis.com/v1alpha1/claims:search",
+                    params=params,
+                    timeout=30,
+                )
+            except requests.RequestException:
+                raise RuntimeError("Falha de conexão com a API de checagens") from None
             if not response.ok:
                 raise RuntimeError(f"A API de checagens retornou HTTP {response.status_code}")
             result = response.json()
@@ -60,6 +58,16 @@ def main() -> None:
             page_token = result.get("nextPageToken")
             if not page_token:
                 break
+    return added
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("consulta", help="Termo ou alegação a pesquisar")
+    parser.add_argument("--paginas", type=int, default=1)
+    parser.add_argument("--saida", type=Path, default=Path("data/candidatas_checagens.jsonl"))
+    args = parser.parse_args()
+    added = discover_claims(args.consulta, args.paginas, args.saida)
     print(f"{added} URLs candidatas novas; revise antes de indexar.")
 
 

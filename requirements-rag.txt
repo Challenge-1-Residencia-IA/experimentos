@@ -4,4 +4,5 @@ feedparser
 pypdf
 python-dotenv
 requests
+rich
 sentence-transformers

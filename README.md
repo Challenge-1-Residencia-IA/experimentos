@@ -14,6 +14,14 @@ source .venv/bin/activate
 pip install -r requirements-rag.txt
 cp .env.example .env
 ollama pull qwen2.5:7b
+python main.py
+```
+
+O menu permite coletar documentos, atualizar o banco, conversar com a tutora,
+descobrir checagens e avaliar a recuperação. Os comandos individuais também
+continuam disponíveis:
+
+```bash
 python -m scripts.coletar_rag --config sources.example.json
 python -m scripts.indexar_rag
 python -m scripts.perguntar_rag "Como posso verificar uma notícia?"
