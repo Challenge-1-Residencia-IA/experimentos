@@ -43,3 +43,9 @@ def test_detectar_e_remover_boilerplate():
 def test_remover_rodape_por_padrao():
     texto = "O boato é falso. Se você quiser sugerir um tema ao Boatos.org, ligue (61) 99331-6821."
     assert remover_boilerplate(texto, []) == "O boato é falso."
+
+
+def test_regex_do_pandas_reconhece_letras_acentuadas():
+    textos = pd.Series(["nesta terça-feira", "ação"])
+    assert textos.str.contains(r"\w+-feira").tolist() == [True, False]
+    assert textos.str.contains(r"ção\b").tolist() == [False, True]

@@ -13,3 +13,4 @@ nltk
 pyarrow
 pytest
 tabulate
+-e .

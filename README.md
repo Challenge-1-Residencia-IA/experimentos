@@ -11,6 +11,7 @@ data/
 ├── raw/          # datasets baixados (Fake.br-Corpus, FakeTrue.Br) — não versionado
 ├── interim/      # dados intermediários (ex.: esquema comum unificado dos datasets)
 └── processed/    # pool final de exemplos para few-shot/avaliação — não versionado
+dados/            # pacote Python: carregamento, limpeza, preparação (make data) e funções de análise das EDAs
 notebooks/        # EDA e exploração — numeração 01-, 02-, 03-...
 models/           # adaptadores LoRA/QLoRA locais, antes do upload ao Hugging Face Hub — não versionado
 reports/
@@ -28,7 +29,9 @@ Só a estrutura das pastas de dados/modelos é versionada (arquivos `.gitkeep`) 
 ```bash
 make create_environment   # ou: python3 -m venv .venv
 source .venv/bin/activate
-make requirements          # instala as dependências e baixa as stopwords do NLTK para .venv/nltk_data
+make requirements          # instala as dependências (inclusive o pacote dados/, em modo editável) e baixa as stopwords do NLTK para .venv/nltk_data
+make data                  # gera data/interim e data/processed a partir de data/raw; resumo em reports/preparacao-dados.md
+make test                  # testes do pacote dados/
 cp .env.example .env
 ```
 
