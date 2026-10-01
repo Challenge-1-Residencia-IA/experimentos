@@ -1,32 +1,31 @@
-# experimentos
+# Tutora RAG de educação midiática
 
-Repositório de experimentação: fine-tuning e avaliação de modelos (atualmente Qwen 2.5 7B via MLX/Ollama) para a tarefa de classificação de desinformação do Challenge 1. Separado do [`bot-core`](https://github.com/Challenge-1-Residencia-IA/bot-core) porque experimentação tem ciclo de iteração mais rápido e instável — quando um resultado amadurece (prompt validado, modelo fine-tunado estável), ele migra para lá.
+Este repositório experimenta uma tutora que ensina a verificar informações.
+Ela recupera materiais educativos e evidências, explica como conferir uma
+alegação e só apresenta um veredito quando há suporte suficiente nas fontes.
 
-## Estrutura
+## Início rápido
 
-```
-scripts/    # scripts de fine-tuning e avaliação
-prompts/    # versões de prompt em teste (few-shot, boundary definitions etc.)
-results/    # resultados de avaliação versionados (JSON/Markdown, não os datasets em si)
-```
-
-## Ambiente local
+Use Python 3.11 ou 3.12, Ollama e o modelo `qwen2.5:7b`:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-rag.txt
 cp .env.example .env
+ollama pull qwen2.5:7b
+python -m scripts.coletar_rag --config sources.example.json
+python -m scripts.indexar_rag
+python -m scripts.perguntar_rag "Como posso verificar uma notícia?"
 ```
 
-Pré-requisitos: Ollama instalado, modelo baixado (`ollama pull qwen2.5:7b`) — ver `Documentacao/docs/Sprint1/config-script.md` para o passo a passo já validado no time.
+O exemplo indexa dois guias educativos próprios. Para verificar fatos, inclua
+documentos do tipo `evidencia` no arquivo de fontes e repita a coleta e a
+indexação. Até lá, a tutora deve responder com veredito `INCONCLUSIVA`.
 
-## Modelos e datasets
+O guia completo de fontes, formatos, atualização incremental e avaliação está
+em [docs/RAG_TUTORA.md](docs/RAG_TUTORA.md). Dados e índice vetorial são
+mantidos localmente em `data/` e `vector_store/`.
 
-Pesos de modelo e datasets grandes **não são versionados aqui** (ver `.gitignore`). Modelos fine-tunados (adaptadores LoRA/QLoRA) são hospedados no [Hugging Face Hub](https://huggingface.co) e referenciados por `HF_MODEL_REPO` no `.env` — mesma convenção documentada no README do [`bot-core`](https://github.com/Challenge-1-Residencia-IA/bot-core#modelos-e-datasets).
-
-Datasets de teste usados na avaliação ficam fora do Git — baixe da fonte original (ver `Documentacao/docs/historias-de-usuario.md` e o dataset da Sprint 1) ou aponte os scripts para o caminho local.
-
-## Resultados
-
-Cada rodada de avaliação salva um resultado versionado em `results/` (ex.: `resultados_v1.json`), para permitir comparar prompts/modelos ao longo do tempo — ver metodologia em `Documentacao/docs/metricas-e-avaliacao.md`.
+`requirements.txt` preserva as dependências dos experimentos antigos de
+fine-tuning. O código do RAG usa `requirements-rag.txt`.

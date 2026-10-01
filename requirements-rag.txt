@@ -1,0 +1,7 @@
+beautifulsoup4
+chromadb
+feedparser
+pypdf
+python-dotenv
+requests
+sentence-transformers
