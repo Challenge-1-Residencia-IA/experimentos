@@ -10,3 +10,6 @@ python-dotenv
 jupyterlab
 matplotlib
 nltk
+pyarrow
+pytest
+tabulate

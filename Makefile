@@ -11,9 +11,13 @@ requirements:
 	pip install -r requirements.txt
 	python -m nltk.downloader -d .venv/nltk_data stopwords
 
+.PHONY: data
+data:
+	python -m dados.preparar
+
 .PHONY: test
 test:
-	pytest tests
+	python -m pytest tests
 
 .PHONY: clean
 clean:
@@ -22,4 +26,4 @@ clean:
 
 .DEFAULT_GOAL := help
 help:
-	@echo "Alvos disponíveis: create_environment, requirements, test, clean"
+	@echo "Alvos disponíveis: create_environment, requirements, data, test, clean"
