@@ -16,6 +16,8 @@
   ],
   "blocked_automated_domains": [
     "agencialupa.org",
-    "aosfatos.org"
+    "aosfatos.org",
+    "ibge.gov.br",
+    "agenciadenoticias.ibge.gov.br"
   ]
 }
