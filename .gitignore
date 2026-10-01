@@ -8,14 +8,25 @@ venv/
 # Variáveis de ambiente
 .env
 
-# Modelos e datasets grandes (hospedados no Hugging Face Hub)
+# Modelos (pesos ficam no Hugging Face Hub) — pasta rastreada, conteúdo não
 *.gguf
 *.safetensors
 *.bin
+models/*
+!models/.gitkeep
+
+# Dados baixados localmente — pasta rastreada, conteúdo não
+data/raw/*
+!data/raw/.gitkeep
+data/interim/*
+!data/interim/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
 *.xlsx
 *.xls
-models/
-datasets/
+
+# Notebooks
+.ipynb_checkpoints/
 
 # OS / editor
 .DS_Store
