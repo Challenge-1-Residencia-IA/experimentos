@@ -1,0 +1,37 @@
+{
+  "nome": "NexoVerdict IA",
+  "repo_id": "Filipelac/nexoverdict-adapters",
+  "privado": true,
+  "status_publicacao": "publicado",
+  "erro_publicacao": null,
+  "commit_release": "f7d6a7106caf8ba590ba82bd77a403b6219c1bad",
+  "tags": ["evidencias-v2", "evidencias-v3", "fakebr-v1"],
+  "modelo_base": "mlx-community/Qwen2.5-7B-Instruct-4bit",
+  "releases": [
+    {
+      "versao": "evidencias-v2",
+      "origem": "models/adapters-evidencias-v2/best",
+      "destino": "evidencias/v2",
+      "sha256": "772d055644f29b1ad3f16771418578217d9d3cee666288f4032c22c2d03ebd11"
+    },
+    {
+      "versao": "evidencias-v3",
+      "origem": "models/adapters-evidencias-v3/best",
+      "destino": "evidencias/v3",
+      "sha256": "48de45a6f4cf029a3c32e3a28619775d9b010e9288e885990c4de8cc6d355027"
+    },
+    {
+      "versao": "fakebr-v1",
+      "origem": "models/adapters-fakebr-v1",
+      "destino": "classificacao/fakebr-v1",
+      "sha256": "cc845c77e08d85105a941e31a1053e5554fce772135b0975e7d2dfd1516c48f9"
+    }
+  ],
+  "excluidos": [
+    "adapters-evidencias-v1: sem pesos",
+    "adapters-evidencias-v4: treino de perguntas com perda NaN; inválido",
+    "adapters-perguntas-v1: treino interrompido",
+    "adapters-perguntas-v3-smoke: smoke test com avaliação inválida",
+    "adapters: experimento Fake.br redundante de 20 iterações"
+  ]
+}

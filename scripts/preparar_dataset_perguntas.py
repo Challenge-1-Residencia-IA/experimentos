@@ -73,9 +73,17 @@ def exemplo_revisado(item: dict, prompts_dir: Path = DEFAULT_PROMPTS_DIR) -> tup
             raise ValueError("Cada fonte exige url e trecho.")
         if not isinstance(usadas, list) or any(type(i) is not int or i < 1 or i > len(fontes) for i in usadas):
             raise ValueError("fontes_usadas deve conter apenas índices válidos.")
-        if status == "RESPONDIDA" and (not usadas or any(f"[{i}]" not in resposta or f"[{i}]" not in justificativa for i in usadas)):
+        minimo_fontes = item.get("minimo_fontes", 2 if len(fontes) >= 2 else 1)
+        if type(minimo_fontes) is not int or minimo_fontes < 1 or minimo_fontes > len(fontes):
+            raise ValueError("minimo_fontes deve ser um inteiro entre 1 e a quantidade de fontes.")
+        if status == "RESPONDIDA" and (
+            len(usadas) < minimo_fontes
+            or any(f"[{i}]" not in resposta or f"[{i}]" not in justificativa for i in usadas)
+        ):
             raise ValueError("Resposta conclusiva exige citações na resposta e na justificativa.")
-        mensagens = montar_mensagens_pergunta(pergunta, modo, formatar_evidencias(fontes), 1, prompts_dir)
+        mensagens = montar_mensagens_pergunta(
+            pergunta, modo, formatar_evidencias(fontes), minimo_fontes, prompts_dir
+        )
         saida = {"status": status, "resposta": resposta, "justificativa": justificativa, "fontes_usadas": usadas}
     mensagens.append({"role": "assistant", "content": json.dumps(saida, ensure_ascii=False)})
     return split, {"messages": mensagens}

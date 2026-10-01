@@ -1,4 +1,4 @@
-# Sift AI — perguntas e verificação com evidências
+# NexoVerdict IA — perguntas e verificação com evidências
 
 Este repositório reúne experimentos locais para:
 
@@ -77,6 +77,7 @@ python main.py
 | 13 | Preparar perguntas | Dataset no formato de resposta e justificativa |
 | 14 | Baixar datasets públicos | FaQuAD, Pirá e amostra RAG QA PT-BR |
 | 15 | Mesclar datasets de perguntas | Dataset deduplicado pronto para ajuste fino |
+| 16 | Avaliar adapter de perguntas | JSON, citações, status, resposta, abstenção e MLflow |
 
 Também é possível abrir diretamente uma opção:
 
@@ -115,73 +116,53 @@ Licenças, links e limitações estão em
 python scripts/preparar_dataset_perguntas_publicas.py \
   --base-data-dir data/perguntas-v2 \
   --public-raw-dir raw/publicos-perguntas-v1 \
-  --output-dir data/perguntas-mescladas-v1
+  --output-dir data/perguntas-mescladas-v3
 ```
 
 O preparador:
 
 - converte as fontes para conversas compatíveis com MLX-LM;
-- adiciona resposta, justificativa, fonte e citação;
+- cria justificativas extraídas do trecho que sustenta cada resposta;
+- adiciona evidências distratoras para ensinar o modelo a não citar material irrelevante;
+- cria, por padrão, 12% de casos inconclusivos contendo apenas distratores;
+- limita cada origem pública a 2.500 exemplos para reduzir o domínio do dataset sintético;
 - remove duplicatas;
 - mantém um documento em apenas um split público;
 - cria `train.jsonl`, `valid.jsonl`, `test.jsonl` e `metadata.json`;
 - recusa um diretório de saída que já contenha arquivos.
 
-O dataset local preparado nesta máquina contém 7.015 exemplos de treino, 858
-de validação e 747 de teste. Essas contagens podem mudar quando as fontes ou os
-limites de download forem alterados.
+Use `--max-por-origem 0` para desativar o limite e
+`--fracao-inconclusiva 0.2`, por exemplo, para aumentar a proporção de
+abstenções. Os datasets públicos têm uma fonte de apoio por pergunta; exemplos
+realmente multifonte devem ser adicionados pelo `--curated-jsonl` da opção 13.
+Neles, o preparador ajusta automaticamente o mínimo exigido no prompt para duas
+fontes e valida as citações antes de gravar o dataset.
 
-### 3. Fazer um smoke test de treino
+### 3. Status do fine-tuning de perguntas
 
-Use sempre um diretório novo:
+O fine-tuning de perguntas está **pausado**. As tentativas locais não geraram
+um adapter confiável: um smoke test falhou no contrato JSON e uma execução de
+300 iterações divergiu para perda `NaN`. Os pesos gerados nessas tentativas não
+devem ser usados ou publicados.
 
-```bash
-python scripts/treinar_visual.py \
-  --data-dir data/perguntas-mescladas-v1 \
-  --adapters-dir models/adapters-perguntas-v2-smoke \
-  --iters 5 \
-  --experiment-name sift-perguntas-smoke
-```
+O registro técnico, as causas e as correções preventivas estão em
+[docs/DECISAO_FINE_TUNING_PERGUNTAS.md](docs/DECISAO_FINE_TUNING_PERGUNTAS.md).
+O dataset corrigido para uma possível retomada futura é
+`data/perguntas-mescladas-v3`, mas não é necessário usá-lo agora.
 
-Esse teste confirma dados, memória, GPU, MLX e MLflow. Ele não é um modelo
-final.
-
-### 4. Ajustar o adapter de perguntas
-
-```bash
-python scripts/treinar_visual.py \
-  --data-dir data/perguntas-mescladas-v1 \
-  --adapters-dir models/adapters-perguntas-v2 \
-  --model mlx-community/Qwen2.5-7B-Instruct-4bit \
-  --iters 100 \
-  --batch-size 1 \
-  --learning-rate 1e-5 \
-  --num-layers 16 \
-  --max-seq-length 1024 \
-  --steps-per-eval 25 \
-  --save-every 25 \
-  --experiment-name sift-perguntas-treino
-```
-
-Ao final, prefira `models/adapters-perguntas-v2/best/`, quando disponível. O
-treinador protege `adapters.safetensors` existente; `--overwrite` deve ser usado
-somente quando a substituição for intencional.
-
-### 5. Perguntar e receber links
+### 4. Perguntar e receber links sem fine-tuning
 
 ```bash
 python scripts/responder_pergunta.py \
   "É verdade que mulheres recebem menos que homens no Brasil?" \
   --modo evidencias \
-  --adapters-dir models/adapters-perguntas-v2/best \
   --max-resultados 5 \
   --min-fontes 2 \
   --max-tentativas 2 \
   --visual
 ```
 
-Enquanto o adapter de perguntas não estiver treinado, omita `--adapters-dir` e
-use o modelo-base. Adapters cujo caminho indique `evidencias`, `fakebr` ou
+Use o modelo-base, sem `--adapters-dir`. Adapters cujo caminho indique `evidencias`, `fakebr` ou
 `classificacao` são recusados nesse fluxo, porque foram treinados para outro
 contrato de saída.
 
@@ -326,6 +307,7 @@ Componentes principais:
 | --- | --- |
 | `main.py` | Menu e encaminhamento para os scripts |
 | `scripts/responder_pergunta.py` | Perguntas com busca, fontes, retry e MLflow |
+| `scripts/avaliar_perguntas.py` | Avaliação reservada do adapter de perguntas |
 | `scripts/perguntas_utils.py` | Templates, contrato JSON e validação de respostas |
 | `scripts/baixar_datasets_perguntas.py` | Download retomável de QA público |
 | `scripts/preparar_dataset_perguntas_publicas.py` | Normalização, deduplicação e mesclagem |

@@ -41,7 +41,7 @@ CATALOGO = {
 
 
 def baixar_json(url: str, destino: Path, timeout: int) -> None:
-    resposta = requests.get(url, timeout=timeout, headers={"User-Agent": "sift-ai-dataset-importer/1.0"})
+    resposta = requests.get(url, timeout=timeout, headers={"User-Agent": "nexoverdict-dataset-importer/1.0"})
     resposta.raise_for_status()
     destino.parent.mkdir(parents=True, exist_ok=True)
     destino.write_bytes(resposta.content)
@@ -62,7 +62,7 @@ def baixar_linhas_hf(
             url = f"https://datasets-server.huggingface.co/rows?{consulta}"
             for tentativa in range(6):
                 resposta = requests.get(
-                    url, timeout=timeout, headers={"User-Agent": "sift-ai-dataset-importer/1.0"}
+                    url, timeout=timeout, headers={"User-Agent": "nexoverdict-dataset-importer/1.0"}
                 )
                 if resposta.status_code != 429:
                     break

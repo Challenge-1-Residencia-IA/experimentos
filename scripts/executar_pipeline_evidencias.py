@@ -89,7 +89,7 @@ if __name__ == "__main__":
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
         "--experiment-name",
-        default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "sift-lora-fine-tuning",
+        default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "nexoverdict-lora-fine-tuning",
         help="Nome compartilhado pelo treino e pela avaliação no MLflow.",
     )
     parser.add_argument(

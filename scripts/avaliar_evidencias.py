@@ -282,7 +282,7 @@ if __name__ == "__main__":
     parser.add_argument("--visual", action="store_true", help="Mostra progresso e tabelas no terminal.")
     parser.add_argument(
         "--experiment-name",
-        default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "sift-lora-fine-tuning",
+        default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "nexoverdict-lora-fine-tuning",
         help="Nome do experimento no MLflow.",
     )
     parser.add_argument(

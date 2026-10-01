@@ -27,20 +27,13 @@ de justificar a resposta com evidências e aumentam bastante o custo do treino.
 ```
 
 O primeiro comando cria apenas `raw/publicos-perguntas-v1/`. O segundo lê esse
-diretório e `data/perguntas-v2/`, deduplica e grava um novo conjunto em
-`data/perguntas-mescladas-v1/`. Nenhum dos dois importa `mlx_lm` ou inicia um
-treino.
+diretório e `data/perguntas-v2/`, deduplica e grava um novo conjunto. Nenhum
+dos dois importa `mlx_lm` ou inicia um treino.
 
 Para repetir um download interrompido, use `--resume`. Para limitar ou ampliar
 a amostra sintética, use `--rag-limit`. O preparador recusa um diretório de
 saída não vazio, evitando substituição acidental.
 
-Quando você decidir treinar no futuro, use explicitamente:
-
-```bash
-.venv/bin/python scripts/treinar_visual.py \
-  --data-dir data/perguntas-mescladas-v1 \
-  --adapters-dir models/adapters-perguntas-v2
-```
-
-Esse comando é apenas uma referência e não é executado pela preparação.
+O fine-tuning de perguntas está pausado por decisão do projeto. Consulte
+[DECISAO_FINE_TUNING_PERGUNTAS.md](DECISAO_FINE_TUNING_PERGUNTAS.md) antes de
+retomá-lo.

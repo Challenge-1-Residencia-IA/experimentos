@@ -4,7 +4,7 @@ library_name: mlx
 pipeline_tag: text-generation
 ---
 
-# Sift AI — adapter de verificação por evidências v3
+# NexoVerdict IA — adapter de verificação por evidências v3
 
 Adapter LoRA experimental para o fluxo MLX-LM deste projeto. Ele recebe uma
 alegação e snippets de evidência e produz uma resposta estruturada com veredito,

@@ -171,7 +171,7 @@ Ordem recomendada para escolher um adapter:
 | Avaliação de evidências | `results/metricas_evidencias_*.json` |
 | Predições de evidências | `results/predicoes_evidencias_*.csv` |
 | Avaliação Fake.br | `results/metricas_fakebr_*.json` |
-| Perguntas e justificativas | experimento `sift-perguntas` no MLflow |
+| Perguntas e justificativas | experimento `nexoverdict-perguntas` no MLflow |
 | Verificação individual | caminho informado em `--output` e MLflow |
 
 `results/` é gerado localmente e não é versionado.

@@ -164,7 +164,7 @@ if __name__ == "__main__":
     parser.add_argument("--results-dir", type=Path, default=ROOT_DIR / "results")
     parser.add_argument("--limit", type=int, help="Limita a avaliação; útil para smoke test.")
     parser.add_argument("--visual", action="store_true", help="Mostra progresso e métricas em painel no terminal.")
-    parser.add_argument("--experiment-name", default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "sift-lora-fine-tuning")
+    parser.add_argument("--experiment-name", default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "nexoverdict-lora-fine-tuning")
     parser.add_argument("--tracking-uri", default=os.environ.get("MLFLOW_TRACKING_URI") or arquivo_uri(ROOT_DIR / "mlflow.db"))
     args = parser.parse_args()
     if args.limit is not None and args.limit <= 0:

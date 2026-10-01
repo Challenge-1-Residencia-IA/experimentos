@@ -16,6 +16,8 @@ from perguntas_utils import (
     validar_resposta_factual,
 )
 from preparar_dataset_perguntas import exemplo_leitura, exemplo_revisado, preparar
+from preparar_dataset_perguntas_publicas import conversa, conversa_inconclusiva, janela_relevante, trecho_que_sustenta
+from avaliar_perguntas import contrato_exemplo, f1_tokens
 from responder_pergunta import validar_adapter_perguntas
 
 
@@ -79,6 +81,19 @@ class ContratoPerguntasTest(unittest.TestCase):
                 "fontes": [{"url": "https://exemplo.org", "trecho": "texto"}], "fontes_usadas": [1],
             })
 
+    def test_exemplo_revisado_multifonte_alinha_minimo_do_prompt(self):
+        _, convertido = exemplo_revisado({
+            "split": "train", "modo": "evidencias", "pergunta": "P?",
+            "resposta": "Resposta confirmada [1] [2]",
+            "justificativa": "A primeira informa X [1] e a segunda confirma X [2].",
+            "status": "RESPONDIDA", "fontes_usadas": [1, 2],
+            "fontes": [
+                {"url": "https://a.example", "trecho": "X ocorreu."},
+                {"url": "https://b.example", "trecho": "X foi confirmado."},
+            ],
+        })
+        self.assertIn("pelo menos 2 fonte", convertido["messages"][0]["content"])
+
     def test_preparo_gera_splits_sem_sobrescrever(self):
         with tempfile.TemporaryDirectory() as pasta:
             raiz = Path(pasta)
@@ -96,6 +111,43 @@ class ContratoPerguntasTest(unittest.TestCase):
             self.assertEqual(len((args.output_dir / "test.jsonl").read_text().splitlines()), 1)
             with self.assertRaises(FileExistsError):
                 preparar(args)
+
+    def test_dataset_publico_usa_justificativa_extrativa_e_distrator(self):
+        item = conversa(
+            "Qual é a capital?", "Brasília",
+            "O Brasil é um país. Brasília é a capital federal do Brasil.",
+            "https://fonte.example/doc", DEFAULT_PROMPTS_DIR,
+            {"titulo": "Irrelevante", "url": "https://outra.example/doc", "trecho": "Lisboa fica em Portugal."},
+        )
+        resposta = json.loads(item["messages"][-1]["content"])
+        usuario = item["messages"][-2]["content"]
+        self.assertIn("Brasília é a capital", resposta["justificativa"])
+        self.assertEqual(resposta["fontes_usadas"], [1])
+        self.assertIn("[2] Irrelevante", usuario)
+
+    def test_dataset_publico_cria_abstencao_sem_citar_distrator(self):
+        item = conversa_inconclusiva(
+            "Qual é a capital?",
+            [{"titulo": "Outra", "url": "https://outra.example", "trecho": "Texto sem a resposta."}],
+            DEFAULT_PROMPTS_DIR,
+        )
+        resposta = json.loads(item["messages"][-1]["content"])
+        self.assertEqual(resposta["status"], "INCONCLUSIVA")
+        self.assertEqual(resposta["fontes_usadas"], [])
+
+    def test_janela_relevante_preserva_resposta_e_limita_contexto(self):
+        contexto = "A" * 3000 + " Brasília é a capital do Brasil. " + "B" * 3000
+        recorte = janela_relevante("Brasília", contexto, limite=1000)
+        self.assertLessEqual(len(recorte), 1004)
+        self.assertIn("Brasília", recorte)
+
+    def test_avaliador_extrai_contrato_e_calcula_f1(self):
+        item = conversa("Qual é a capital?", "Brasília", "Brasília é a capital.",
+                        "https://fonte.example", DEFAULT_PROMPTS_DIR)
+        _, referencia, total, minimo = contrato_exemplo(item)
+        self.assertEqual((total, minimo, referencia["status"]), (1, 1, "RESPONDIDA"))
+        self.assertGreater(f1_tokens("Brasília é a capital [1]", "A capital é Brasília [1]"), 0.9)
+        self.assertIn("Brasília", trecho_que_sustenta("Brasília", "Outra frase. Brasília é a capital."))
 
 
 class MlflowPerguntasTest(unittest.TestCase):

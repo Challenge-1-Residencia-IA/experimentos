@@ -1,16 +1,15 @@
 {
   "nome": "adapters-evidencias-v3-best",
   "hub": {
-    "repo_id": "Filipelac/sift-ai-adapters-evidencias",
-    "url": "https://huggingface.co/Filipelac/sift-ai-adapters-evidencias",
-    "revisao": "5bae4349300e2c4c20de12b2a7b0081e47ca45c4",
-    "tag": "adapters-2026-09-25",
+    "repo_id": "Filipelac/nexoverdict-adapters",
+    "url": "https://huggingface.co/Filipelac/nexoverdict-adapters",
+    "revisao": "f7d6a7106caf8ba590ba82bd77a403b6219c1bad",
+    "tag": "evidencias-v3",
     "visibilidade": "private",
     "status_publicacao": "publicado",
     "artefatos": {
-      "v2_best": "v2-best/",
-      "v3_completo": "v3/",
-      "v3_best": "v3-best/"
+      "v2_best": "evidencias/v2/",
+      "v3_best": "evidencias/v3/"
     }
   },
   "adapter_local": "models/adapters-evidencias-v3/best",

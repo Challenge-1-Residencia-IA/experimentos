@@ -235,7 +235,7 @@ if __name__ == "__main__":
     parser.add_argument("--visual", action="store_true")
     parser.add_argument("--prompts-dir", type=Path, default=ROOT_DIR / "prompts", help="Pasta com templates de prompts de perguntas.")
     parser.add_argument("--tracking-uri", default=os.environ.get("MLFLOW_TRACKING_URI") or f"sqlite:///{(ROOT_DIR / 'mlflow.db').resolve()}")
-    parser.add_argument("--experiment-name", default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "sift-perguntas")
+    parser.add_argument("--experiment-name", default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "nexoverdict-perguntas")
     parser.add_argument("--permitir-adapter-incompativel", action="store_true")
     args = parser.parse_args()
     if not args.pergunta.strip():

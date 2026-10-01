@@ -44,7 +44,7 @@ def perguntar_opcional(mensagem: str) -> str | None:
     return resposta or None
 
 
-def configuracao_mlflow(experimento_padrao: str = "sift-lora-fine-tuning") -> tuple[str, str]:
+def configuracao_mlflow(experimento_padrao: str = "nexoverdict-lora-fine-tuning") -> tuple[str, str]:
     experimento = Prompt.ask(
         "Nome do experimento no MLflow",
         default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or experimento_padrao,
@@ -149,7 +149,7 @@ def responder_pergunta() -> None:
         argumentos.extend(["--adapters-dir", str(selecionar_adaptador())])
     if Confirm.ask("Usar outra pasta de prompts internos?", default=False):
         argumentos.extend(["--prompts-dir", str(perguntar_caminho("Pasta dos prompts", RAIZ / "prompts"))])
-    experimento, tracking = configuracao_mlflow("sift-perguntas")
+    experimento, tracking = configuracao_mlflow("nexoverdict-perguntas")
     argumentos.extend(["--experiment-name", experimento, "--tracking-uri", tracking])
     if Confirm.ask("Salvar também um relatório JSON?", default=True):
         saida = RAIZ / f"results/pergunta_{datetime.now():%Y%m%d_%H%M%S}.json"
@@ -189,8 +189,27 @@ def mesclar_perguntas_publicas() -> None:
         "--public-raw-dir", str(perguntar_caminho("Dados públicos baixados", RAIZ / "raw/publicos-perguntas-v1")),
         "--output-dir", str(perguntar_caminho("Novo dataset mesclado", RAIZ / "data/perguntas-mescladas-v1")),
         "--seed", str(IntPrompt.ask("Semente da divisão", default=42)),
+        "--max-por-origem", str(IntPrompt.ask("Máximo de exemplos por dataset público (0 = sem limite)", default=2500)),
+        "--fracao-inconclusiva", str(FloatPrompt.ask("Fração de casos inconclusivos com distratores", default=0.12)),
     ]
     executar_script("preparar_dataset_perguntas_publicas.py", argumentos)
+
+
+def avaliar_perguntas() -> None:
+    teste = perguntar_caminho("Conjunto de teste de perguntas", RAIZ / "data/perguntas-mescladas-v1/test.jsonl")
+    adaptador = selecionar_adaptador(RAIZ / "models/adapters-perguntas-v2/best")
+    experimento, tracking = configuracao_mlflow("nexoverdict-perguntas-avaliacao")
+    argumentos = [
+        "--test-jsonl", str(teste), "--adapters-dir", str(adaptador),
+        "--model", Prompt.ask("Modelo-base", default=MODELO_PADRAO),
+        "--max-tokens", str(IntPrompt.ask("Máximo de tokens por resposta", default=350)),
+        "--output", str(perguntar_caminho("Relatório JSON", RAIZ / "results/avaliacao_perguntas.json")),
+        "--experiment-name", experimento, "--tracking-uri", tracking,
+    ]
+    limite = perguntar_opcional("Limitar exemplos? Vazio = avaliar todos")
+    if limite:
+        argumentos.extend(["--limit", limite])
+    executar_script("avaliar_perguntas.py", argumentos)
 
 
 def avaliar_evidencias() -> None:
@@ -223,7 +242,7 @@ def treinar_adaptador() -> None:
         "--num-layers", str(IntPrompt.ask("Camadas LoRA", default=16)),
         "--max-seq-length", str(IntPrompt.ask("Comprimento máximo da sequência", default=1024)),
         "--grad-accumulation-steps", str(IntPrompt.ask("Passos de acumulação de gradiente", default=1)),
-        "--val-batches", str(IntPrompt.ask("Lotes usados na validação (-1 = todos)", default=-1)),
+        "--val-batches", str(IntPrompt.ask("Lotes usados na validação (-1 = todos; pode ser muito lento)", default=25)),
         "--steps-per-eval", str(IntPrompt.ask("Validar a cada N iterações", default=25)),
         "--save-every", str(IntPrompt.ask("Salvar checkpoint a cada N iterações", default=25)),
         "--steps-per-report", str(IntPrompt.ask("Atualizar métricas a cada N iterações", default=1)),
@@ -392,11 +411,12 @@ ACOES: dict[str, tuple[str, str, Callable[[], None]]] = {
     "13": ("Preparar perguntas", "Cria exemplos de resposta e justificativa para ajuste fino", preparar_perguntas),
     "14": ("Baixar datasets públicos", "Baixa QA português em uma pasta raw isolada; não treina", baixar_perguntas_publicas),
     "15": ("Mesclar datasets de perguntas", "Normaliza e mescla em um novo dataset; não treina", mesclar_perguntas_publicas),
+    "16": ("Avaliar adapter de perguntas", "Mede JSON, citações, status, resposta e abstenção", avaliar_perguntas),
 }
 
 
 def mostrar_menu() -> None:
-    console.print(Panel("Treino, avaliação e verificação em um só lugar", title="Sift AI", border_style="bright_blue"))
+    console.print(Panel("Treino, avaliação e verificação em um só lugar", title="NexoVerdict IA", border_style="bright_blue"))
     tabela = Table(title="Menu principal", border_style="bright_blue", show_lines=True)
     tabela.add_column("Opção", justify="center", style="bold cyan")
     tabela.add_column("O que fazer", style="bold")
@@ -430,7 +450,7 @@ def executar_menu(opcao_inicial: str | None = None) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Menu unificado do projeto Sift AI.")
+    parser = argparse.ArgumentParser(description="Menu unificado do projeto NexoVerdict IA.")
     parser.add_argument("--listar", action="store_true", help="Mostra o menu e encerra sem solicitar entrada.")
     parser.add_argument("--opcao", choices=[*ACOES.keys(), "0"], help="Abre diretamente uma opção do menu.")
     argumentos = parser.parse_args()

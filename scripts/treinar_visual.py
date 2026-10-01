@@ -127,7 +127,7 @@ def criar_painel(progresso: Progress, texto_metricas: Text) -> Layout:
     """Cria a vista de progresso mostrada enquanto o subprocesso treina."""
     layout = Layout()
     layout.split(
-        Layout(Panel(progresso, title="[bold green]Sift AI — Progresso do ajuste fino[/bold green]"), size=5),
+        Layout(Panel(progresso, title="[bold green]NexoVerdict IA — Progresso do ajuste fino[/bold green]"), size=5),
         Layout(Panel(texto_metricas, title="[bold blue]Métricas em tempo real[/bold blue]"), size=6),
     )
     return layout
@@ -141,6 +141,12 @@ def regex_metricas() -> tuple[re.Pattern, re.Pattern]:
     )
     validacao = re.compile(rf"Iter (\d+): Val loss ({numero})")
     return treino, validacao
+
+
+def limpar_saida_terminal(texto: str) -> str:
+    """Remove controles ANSI/retornos usados pelas barras do MLX antes do parsing."""
+    sem_ansi = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", texto)
+    return sem_ansi.replace("\r", " ").strip()
 
 
 def guardar_melhor_checkpoint(
@@ -193,6 +199,18 @@ def main(args: argparse.Namespace):
     total_treino = validar_jsonl(args.data_dir / "train.jsonl")
     total_validacao = validar_jsonl(args.data_dir / "valid.jsonl")
     total_teste = validar_jsonl(args.data_dir / "test.jsonl") if (args.data_dir / "test.jsonl").exists() else 0
+    lotes_validacao = total_validacao if args.val_batches == -1 else min(args.val_batches, total_validacao)
+    print(
+        f"[i] Dataset: {total_treino} treino, {total_validacao} validação, {total_teste} teste.\n"
+        f"[i] Antes da primeira iteração, o MLX calculará a perda em {lotes_validacao} lote(s) de validação.",
+        flush=True,
+    )
+    if args.val_batches == -1 and total_validacao > 100:
+        print(
+            "[!] --val-batches=-1 usa toda a validação e pode deixar o progresso em 0% por muito tempo. "
+            "Interrompa e use --val-batches 5 para smoke test ou 25 para treino normal se isso não foi intencional.",
+            flush=True,
+        )
     adaptador_final = args.adapters_dir / "adapters.safetensors"
     if adaptador_final.exists() and not args.resume_adapter_file and not args.overwrite:
         raise FileExistsError(
@@ -215,9 +233,13 @@ def main(args: argparse.Namespace):
         TimeRemainingColumn(),
     )
 
-    id_tarefa = progresso.add_task("Ajustando o modelo Sift LLM...", total=args.iters)
+    id_tarefa = progresso.add_task("Ajustando o modelo NexoVerdict...", total=args.iters)
 
-    texto_metricas = Text("Iniciando carregamento do modelo...", style="yellow")
+    texto_metricas = Text(
+        f"Carregando o modelo. Em seguida será feita a validação inicial em {lotes_validacao} lote(s); "
+        "a barra de treino permanece em 0% durante essa etapa.",
+        style="yellow",
+    )
 
     padrao_treino, padrao_validacao = regex_metricas()
     historico_validacao = []
@@ -243,6 +265,8 @@ def main(args: argparse.Namespace):
         mlflow.set_tags({"biblioteca": "mlx-lm", "tarefa": "ajuste_fino_lora"})
 
         with Live(criar_painel(progresso, texto_metricas), refresh_per_second=4) as live:
+            args.adapters_dir.mkdir(parents=True, exist_ok=True)
+            log_treino = args.adapters_dir / "training_output.log"
             ambiente = os.environ.copy()
             ambiente["PYTHONUNBUFFERED"] = "1"
             process = subprocess.Popen(
@@ -256,63 +280,79 @@ def main(args: argparse.Namespace):
 
             perda_validacao = "Ainda não calculada"
             ultimas_linhas = []
+            erro_numerico = None
 
-            for line in iter(process.stdout.readline, ''):
-                linha_limpa = line.strip()
-                ultimas_linhas.append(linha_limpa)
-                ultimas_linhas = ultimas_linhas[-20:]
-                match_train = padrao_treino.search(line)
-                if match_train:
-                    iter_atual = int(match_train.group(1))
-                    perda_treinamento = float(match_train.group(2))
-                    iteracoes_por_segundo = float(match_train.group(3))
-                    memoria_gb = float(match_train.group(4))
+            with log_treino.open("w", encoding="utf-8") as arquivo_log:
+                for line in iter(process.stdout.readline, ''):
+                    arquivo_log.write(line)
+                    arquivo_log.flush()
+                    linha_limpa = limpar_saida_terminal(line)
+                    ultimas_linhas.append(linha_limpa)
+                    ultimas_linhas = ultimas_linhas[-20:]
+                    if re.search(r"Iter\s+\d+:\s+(?:Train|Val) loss\s+(?:nan|inf)\b", linha_limpa, re.IGNORECASE):
+                        erro_numerico = linha_limpa
+                        process.terminate()
+                        break
+                    match_train = padrao_treino.search(linha_limpa)
+                    if match_train:
+                        iter_atual = int(match_train.group(1))
+                        perda_treinamento = float(match_train.group(2))
+                        iteracoes_por_segundo = float(match_train.group(3))
+                        memoria_gb = float(match_train.group(4))
 
-                    progresso.update(id_tarefa, completed=iter_atual)
-                    mlflow.log_metrics(
-                        {
-                            "perda_treinamento": perda_treinamento,
-                            "iteracoes_por_segundo": iteracoes_por_segundo,
-                            "pico_memoria_gb": memoria_gb,
-                        },
-                        step=iter_atual,
-                    )
+                        progresso.update(id_tarefa, completed=iter_atual, description="Ajustando o modelo NexoVerdict...")
+                        mlflow.log_metrics(
+                            {
+                                "perda_treinamento": perda_treinamento,
+                                "iteracoes_por_segundo": iteracoes_por_segundo,
+                                "pico_memoria_gb": memoria_gb,
+                            },
+                            step=iter_atual,
+                        )
 
-                    texto_metricas = Text.from_markup(
-                        f" Iteração: [bold white]{iter_atual}/{args.iters}[/bold white]\n"
-                        f" Perda de treinamento: [bold green]{perda_treinamento}[/bold green] | "
-                        f"Perda de validação: [bold yellow]{perda_validacao}[/bold yellow]\n"
-                        f" Velocidade: [bold cyan]{iteracoes_por_segundo} iterações/s[/bold cyan] | "
-                        f"Pico de memória: [bold magenta]{memoria_gb} GB[/bold magenta]"
-                    )
-                    live.update(criar_painel(progresso, texto_metricas))
+                        texto_metricas = Text.from_markup(
+                            f" Iteração: [bold white]{iter_atual}/{args.iters}[/bold white]\n"
+                            f" Perda de treinamento: [bold green]{perda_treinamento}[/bold green] | "
+                            f"Perda de validação: [bold yellow]{perda_validacao}[/bold yellow]\n"
+                            f" Velocidade: [bold cyan]{iteracoes_por_segundo} iterações/s[/bold cyan] | "
+                            f"Pico de memória: [bold magenta]{memoria_gb} GB[/bold magenta]"
+                        )
+                        live.update(criar_painel(progresso, texto_metricas))
 
-                elif linha_limpa:
-                    texto_metricas = Text(
-                        "Carregando/preparando o modelo...\n" + linha_limpa[-500:],
-                        style="yellow",
-                    )
-                    live.update(criar_painel(progresso, texto_metricas))
+                    elif linha_limpa:
+                        texto_metricas = Text(
+                            "Carregando/preparando o modelo...\n" + linha_limpa[-500:],
+                            style="yellow",
+                        )
+                        live.update(criar_painel(progresso, texto_metricas))
 
-                match_val = padrao_validacao.search(line)
-                if match_val:
-                    iter_atual = int(match_val.group(1))
-                    perda_validacao = float(match_val.group(2))
-                    historico_validacao.append({"iteracao": iter_atual, "perda_validacao": perda_validacao})
-                    mlflow.log_metric("perda_validacao", perda_validacao, step=iter_atual)
-                    texto_metricas = Text(
-                        f"Iteração: {iter_atual}/{args.iters}\nPerda de validação: {perda_validacao}",
-                        style="yellow",
-                    )
-                    live.update(criar_painel(progresso, texto_metricas))
+                    match_val = padrao_validacao.search(linha_limpa)
+                    if match_val:
+                        iter_atual = int(match_val.group(1))
+                        perda_validacao = float(match_val.group(2))
+                        historico_validacao.append({"iteracao": iter_atual, "perda_validacao": perda_validacao})
+                        mlflow.log_metric("perda_validacao", perda_validacao, step=iter_atual)
+                        texto_metricas = Text(
+                            f"Iteração: {iter_atual}/{args.iters}\nPerda de validação: {perda_validacao}",
+                            style="yellow",
+                        )
+                        live.update(criar_painel(progresso, texto_metricas))
 
             retorno = process.wait()
+            if erro_numerico:
+                raise RuntimeError(
+                    "O treinamento foi interrompido automaticamente porque a perda ficou inválida "
+                    f"({erro_numerico}). Isso costuma indicar que o prompt foi truncado antes da resposta "
+                    "quando --mask-prompt está ativo. Gere dados menores ou aumente --max-seq-length."
+                )
             if retorno != 0:
                 diagnostico = "\n".join(linha for linha in ultimas_linhas if linha)
                 raise RuntimeError(
                     f"O treinamento MLX terminou com código {retorno}. "
                     f"Saída final:\n{diagnostico}"
                 )
+            progresso.update(id_tarefa, completed=args.iters)
+            live.update(criar_painel(progresso, Text("Treinamento concluído; salvando artefatos...", style="green")))
 
         melhor_checkpoint = guardar_melhor_checkpoint(args.adapters_dir, historico_validacao)
         resumo_path = salvar_resumo(args, comando, historico_validacao, melhor_checkpoint)
@@ -333,7 +373,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-layers", type=int, default=16)
     parser.add_argument("--max-seq-length", type=int, default=1024)
     parser.add_argument("--grad-accumulation-steps", type=int, default=1)
-    parser.add_argument("--val-batches", type=int, default=-1)
+    parser.add_argument("--val-batches", type=int, default=25)
     parser.add_argument("--steps-per-eval", type=int, default=25)
     parser.add_argument("--save-every", type=int, default=25)
     parser.add_argument("--steps-per-report", type=int, default=1)
@@ -356,7 +396,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--experiment-name",
-        default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "sift-lora-fine-tuning",
+        default=os.environ.get("MLFLOW_EXPERIMENT_NAME") or "nexoverdict-lora-fine-tuning",
         help="Nome do experimento MLflow.",
     )
     args = parser.parse_args()

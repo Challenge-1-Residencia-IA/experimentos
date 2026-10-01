@@ -4,10 +4,16 @@ Os pesos não são armazenados neste repositório Git. O Git guarda este guia e 
 referências necessárias para localizar e reproduzir cada versão; os arquivos
 pesados ficam em um repositório de modelos, como o Hugging Face Hub.
 
-Os adapters atuais foram publicados no repositório privado
-`Filipelac/sift-ai-adapters-evidencias`, na revisão
+O NexoVerdict IA está versionado no repositório privado
+`Filipelac/nexoverdict-adapters`, com as tags `evidencias-v2`,
+`evidencias-v3` e `fakebr-v1`. O manifesto de releases está em
+`models/nexoverdict-adapters-manifest.json`.
+
+Antes da mudança de nome, os adapters de evidências foram publicados no
+repositório privado legado `Filipelac/sift-ai-adapters-evidencias`, na revisão
 `5bae4349300e2c4c20de12b2a7b0081e47ca45c4` e na tag
-`adapters-2026-09-25`. A estrutura remota é:
+`adapters-2026-09-25`. Esse repositório legado foi removido após a migração; a
+referência abaixo permanece apenas como registro histórico:
 
 ```text
 v2-best/   melhor checkpoint do v2
@@ -108,27 +114,25 @@ hf download USUARIO/adapters-evidencias-v3 \
   --local-dir models/adapters-evidencias-v3/best
 ```
 
-Para recuperar a publicação atual em sua estrutura local:
+Para recuperar a publicação atual do NexoVerdict IA:
 
 ```bash
-hf download Filipelac/sift-ai-adapters-evidencias \
-  --revision adapters-2026-09-25 \
-  --include 'v2-best/**' \
+hf download Filipelac/nexoverdict-adapters \
+  --revision evidencias-v2 \
+  --include 'evidencias/v2/**' \
   --local-dir models/huggingface
 
-hf download Filipelac/sift-ai-adapters-evidencias \
-  --revision adapters-2026-09-25 \
-  --include 'v3/**' \
-  --include 'v3-best/**' \
+hf download Filipelac/nexoverdict-adapters \
+  --revision evidencias-v3 \
+  --include 'evidencias/v3/**' \
   --local-dir models/huggingface
 ```
 
-Os scripts aceitam `--adapters-dir models/adapters-evidencias-v3`; se os pesos
-estiverem na subpasta `best`, passe o caminho diretamente:
+Os scripts aceitam o caminho do adapter baixado:
 
 ```bash
 python scripts/avaliar_evidencias.py \
-  --adapters-dir models/adapters-evidencias-v3/best
+  --adapters-dir models/huggingface/evidencias/v3
 ```
 
 Para um repositório privado, configure `HF_TOKEN` localmente em `.env` ou no
