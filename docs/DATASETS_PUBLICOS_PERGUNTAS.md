@@ -34,6 +34,7 @@ Para repetir um download interrompido, use `--resume`. Para limitar ou ampliar
 a amostra sintética, use `--rag-limit`. O preparador recusa um diretório de
 saída não vazio, evitando substituição acidental.
 
-O fine-tuning de perguntas está pausado por decisão do projeto. Consulte
-[DECISAO_FINE_TUNING_PERGUNTAS.md](DECISAO_FINE_TUNING_PERGUNTAS.md) antes de
-retomá-lo.
+O fine-tuning de perguntas foi abandonado em favor de RAG por decisão do
+projeto. Consulte
+[DECISAO_ARQUITETURAL_ADOCAO_RAG.md](DECISAO_ARQUITETURAL_ADOCAO_RAG.md) para
+conhecer os motivos e o plano adotado.

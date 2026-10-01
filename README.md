@@ -138,19 +138,18 @@ realmente multifonte devem ser adicionados pelo `--curated-jsonl` da opção 13.
 Neles, o preparador ajusta automaticamente o mínimo exigido no prompt para duas
 fontes e valida as citações antes de gravar o dataset.
 
-### 3. Status do fine-tuning de perguntas
+### 3. Decisão sobre perguntas com evidências
 
-O fine-tuning de perguntas está **pausado**. As tentativas locais não geraram
-um adapter confiável: um smoke test falhou no contrato JSON e uma execução de
-300 iterações divergiu para perda `NaN`. Os pesos gerados nessas tentativas não
-devem ser usados ou publicados.
+O fine-tuning de perguntas foi **abandonado**. As tentativas locais consumiram
+muito tempo e não geraram um adapter com resultado prático suficiente: um
+smoke test falhou no contrato JSON e uma execução de 300 iterações divergiu
+para perda `NaN`. O projeto passa a concentrar o desenvolvimento em RAG.
 
-O registro técnico, as causas e as correções preventivas estão em
-[docs/DECISAO_FINE_TUNING_PERGUNTAS.md](docs/DECISAO_FINE_TUNING_PERGUNTAS.md).
-O dataset corrigido para uma possível retomada futura é
-`data/perguntas-mescladas-v3`, mas não é necessário usá-lo agora.
+O registro técnico, os motivos e o plano inicial estão em
+[docs/DECISAO_ARQUITETURAL_ADOCAO_RAG.md](docs/DECISAO_ARQUITETURAL_ADOCAO_RAG.md).
+Os experimentos anteriores permanecem apenas como histórico técnico.
 
-### 4. Perguntar e receber links sem fine-tuning
+### 4. Perguntar e receber links com o modelo-base
 
 ```bash
 python scripts/responder_pergunta.py \
