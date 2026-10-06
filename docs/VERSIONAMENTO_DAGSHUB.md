@@ -133,3 +133,16 @@ Os registros já presentes em `mlflow.db` não são migrados automaticamente.
 No plano gratuito, o DagsHub limita execuções rastreadas em projetos privados;
 como cada consulta gera uma execução, confira a [página de preços](https://dagshub.com/pricing)
 antes de usar esse modo em alto volume.
+
+Para sincronizar os runs locais já existentes sem repetir as chamadas ao Qwen:
+
+```sh
+.venv/bin/python -m scripts.sincronizar_runs_mlflow_dagshub --dry-run
+.venv/bin/python -m scripts.sincronizar_runs_mlflow_dagshub
+```
+
+O sincronizador copia métricas, histórico das métricas, parâmetros, tags e um
+resumo rastreável com o ID original. Ele não copia os artefatos locais, pois os
+relatórios e rastreios podem conter trechos do FakeTrue.Br cuja licença ainda
+precisa ser confirmada. Runs já sincronizados são reconhecidos pela tag
+`source_local_run_id` e não são duplicados.

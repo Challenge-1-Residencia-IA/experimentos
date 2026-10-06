@@ -55,6 +55,7 @@ python -m scripts.perguntar_rag "https://exemplo.org/noticia"
 python -m scripts.avaliar_rag_mlflow docs/casos_avaliacao_exemplo.jsonl
 python -m scripts.avaliar_rag_mlflow data/avaliacao/casos_dataset_colega.jsonl --retrieval-only
 python -m scripts.recalcular_metricas_mlflow
+python -m scripts.sincronizar_runs_mlflow_dagshub --dry-run
 python -m scripts.publicar_dataset_rag_mlflow
 python -m scripts.testar_modelo_dagshub "É verdade que ...?" --version 1 --modo web
 python -m scripts.testar_benchmark_averitec --per-class 10
