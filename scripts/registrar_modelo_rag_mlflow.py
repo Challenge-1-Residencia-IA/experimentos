@@ -73,7 +73,7 @@ def main() -> None:
         "contract": contract_fingerprint(SYSTEM_PROMPT, ANSWER_SCHEMA),
         "runtime": "Ollama local; pesos Qwen não incluídos no artefato",
     }
-    configure_tracking()
+    configure_tracking(remote=True)
     requirements = [f"{name}=={version(name)}" for name in (
         "mlflow", "chromadb", "sentence-transformers", "requests",
         "python-dotenv", "feedparser", "beautifulsoup4", "pypdf", "pandas",

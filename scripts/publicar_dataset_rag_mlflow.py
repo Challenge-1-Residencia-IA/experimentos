@@ -59,7 +59,7 @@ def main() -> None:
         ),
     }
 
-    uri = configure_tracking()
+    uri = configure_tracking(remote=True)
     with mlflow.start_run(run_name=f"dataset-{DATASET_VERSION}") as run:
         mlflow.log_params({
             "dataset_version": DATASET_VERSION,

@@ -45,7 +45,9 @@ O diretório informado recebe `mlflow.db` e `artifacts/`. Para inspecionar:
 ```
 
 Abra `http://127.0.0.1:5000`. Remover esse diretório descarta apenas o teste.
-Sem `--mlflow-local`, as consultas continuam sendo enviadas ao DagsHub.
+Sem `--mlflow-local`, as consultas são registradas automaticamente no
+`mlflow.db` da raiz do projeto. O DagsHub é usado somente pelas ações de
+publicação e pelo carregamento de versões do Model Registry.
 
 ## Publicar e consultar versões
 
@@ -122,9 +124,10 @@ caso servem apenas para conferir o fluxo; não medem qualidade geral. O vínculo
 ao registro aparece nas tags `registered_model_name` e
 `registered_model_version` quando os hashes conferem.
 
-Consultas e avaliações usam o mesmo servidor e registram o mesmo hash. A
-opção **9** do menu mostra a URL do painel. O DagsHub escolhe o armazenamento
-remoto dos artefatos do experimento; o cliente não fornece um caminho local.
+Consultas e avaliações usam o MLflow local e registram o mesmo hash. A opção
+**9** abre a interface local; a opção **14** mostra a URL do DagsHub, onde
+ficam versões explicitamente publicadas. O DagsHub escolhe o armazenamento
+remoto desses artefatos.
 
 Os registros já presentes em `mlflow.db` não são migrados automaticamente.
 No plano gratuito, o DagsHub limita execuções rastreadas em projetos privados;

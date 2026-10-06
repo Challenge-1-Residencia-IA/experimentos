@@ -159,7 +159,7 @@ def main() -> None:
         args.casos, args.run_name, index_path=args.index_path, corpus_path=args.corpus_path
     )
     print(json.dumps({"metricas": metrics, "run_id": run_id, "tracking_uri": tracking_uri}, ensure_ascii=False, indent=2))
-    print(f"Painel DagsHub: {tracking_uri}")
+    print(f"MLflow: {tracking_uri}")
 
 
 if __name__ == "__main__":

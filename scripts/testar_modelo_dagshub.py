@@ -8,7 +8,11 @@ import json
 import mlflow
 import pandas as pd
 
-from rag.dagshub_tracking import REGISTERED_MODEL_NAME, configure_tracking
+from rag.dagshub_tracking import (
+    REGISTERED_MODEL_NAME,
+    configure_tracking,
+    tracked_registered_prediction,
+)
 
 
 def main() -> None:
@@ -18,11 +22,17 @@ def main() -> None:
     parser.add_argument("--modo", choices=("web", "local"), default="web")
     args = parser.parse_args()
 
-    configure_tracking()
+    configure_tracking(remote=True)
     uri = f"models:/{REGISTERED_MODEL_NAME}/{args.version}"
     model = mlflow.pyfunc.load_model(uri)
-    output = model.predict(pd.DataFrame({"pergunta": [args.pergunta], "modo": [args.modo]}))[0]
+    output, run_id = tracked_registered_prediction(
+        args.pergunta,
+        args.modo,
+        args.version,
+        lambda: model.predict(pd.DataFrame({"pergunta": [args.pergunta], "modo": [args.modo]}))[0],
+    )
     print(json.dumps(json.loads(output), ensure_ascii=False, indent=2))
+    print(f"MLflow run: {run_id}")
 
 
 if __name__ == "__main__":

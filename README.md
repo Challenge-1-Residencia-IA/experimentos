@@ -10,8 +10,9 @@ o estado das fontes consultadas; não classifica a alegação como verdadeira ou
 O prompt e o esquema JSON têm versão `analise-evidencias-v1`. Configure o
 repositório da equipe no DagsHub conforme [o guia de versionamento](docs/VERSIONAMENTO_DAGSHUB.md)
 e publique a versão com `.venv/bin/python -m scripts.registrar_modelo_rag_mlflow`.
-Cada consulta registra no MLflow do DagsHub a pergunta, as fontes, a saída do
-modelo, a resposta validada e o hash do contrato de resposta.
+Cada consulta registra automaticamente no MLflow local a pergunta, as fontes,
+a saída do modelo, a resposta validada e o hash do contrato. O DagsHub recebe
+somente versões, datasets e artefatos publicados explicitamente.
 
 ## Início rápido
 
@@ -64,8 +65,9 @@ locais continuam úteis para ensinar o método e cobrir informações já revisa
 O arquivo `web_sources.json` controla quais domínios podem contribuir para
 um veredito conclusivo e quais não são coletados automaticamente.
 
-Para acompanhar avaliações, use a opção 9 do menu e abra o painel DagsHub da
-equipe. O exemplo de avaliação mostra a lacuna factual da base inicial; as
+Para acompanhar as consultas locais, use a opção 9, que abre o `mlflow.db` com
+`mlflow ui`. A opção 14 mostra o painel DagsHub das versões compartilhadas. O
+exemplo de avaliação mostra a lacuna factual da base inicial; as
 métricas de avaliação das evidências e recuperação exigem casos revisados e
 evidências indexadas.
 O benchmark AVeriTeC usa dados e índice separados da base principal; veja

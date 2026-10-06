@@ -12,7 +12,7 @@ from rag.tutor import ANSWER_SCHEMA, RESPONSE_VERSION, SYSTEM_PROMPT
 
 
 def main() -> None:
-    uri = configure_tracking()
+    uri = configure_tracking(remote=True)
     fingerprint = contract_fingerprint(SYSTEM_PROMPT, ANSWER_SCHEMA)
     with mlflow.start_run(run_name=f"versao-{RESPONSE_VERSION}-{fingerprint['contract_sha256'][:12]}") as run:
         mlflow.log_params({

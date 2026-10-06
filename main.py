@@ -276,9 +276,10 @@ def status() -> None:
     table.add_row("Checagens candidatas", "presente" if CANDIDATES.exists() else "nenhuma")
     benchmark_cases = ROOT / "data" / "benchmark_averitec" / "casos.jsonl"
     table.add_row("Benchmark AVeriTeC", "preparado" if benchmark_cases.exists() else "ainda não preparado")
-    from rag.dagshub_tracking import tracking_uri
+    from rag.dagshub_tracking import dagshub_tracking_uri, tracking_uri
 
     table.add_row("MLflow padrão", tracking_uri())
+    table.add_row("Publicação DagsHub", dagshub_tracking_uri())
     table.add_row("Modelo Ollama", os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))
     console.print(table)
 
@@ -298,7 +299,7 @@ def evaluate_mlflow() -> None:
         table.add_row(name, f"{value:.3f}")
     console.print(table)
     console.print(f"[green]Execução MLflow:[/green] {run_id}")
-    console.print(f"[dim]Painel DagsHub: {tracking_uri}[/dim]")
+    console.print(f"[dim]MLflow: {tracking_uri}[/dim]")
 
 
 def benchmark() -> None:
@@ -317,7 +318,28 @@ def benchmark() -> None:
 def open_mlflow() -> None:
     from rag.dagshub_tracking import tracking_uri
 
-    console.print(Panel(f"Painel da equipe: {tracking_uri()}", title="DagsHub", border_style="green"))
+    port = IntPrompt.ask("Porta da interface", default=5000)
+    uri = tracking_uri()
+    command = [sys.executable, "-m", "mlflow", "ui", "--backend-store-uri",
+               uri, "--port", str(port)]
+    console.print(Panel(
+        f"Acesse http://127.0.0.1:{port}\nPressione Ctrl+C para voltar.",
+        title="MLflow local",
+        border_style="green",
+    ))
+    try:
+        result = subprocess.run(command, cwd=ROOT, check=False)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Servidor MLflow encerrado.[/yellow]")
+    else:
+        if result.returncode:
+            console.print(f"[red]MLflow terminou com código {result.returncode}.[/red]")
+
+
+def show_dagshub() -> None:
+    from rag.dagshub_tracking import dagshub_tracking_uri
+
+    console.print(Panel(f"Painel da equipe: {dagshub_tracking_uri()}", title="DagsHub", border_style="green"))
 
 
 def temporary_test() -> None:
@@ -357,9 +379,13 @@ def test_registered_model() -> None:
     import pandas as pd
     from mlflow.tracking import MlflowClient
 
-    from rag.dagshub_tracking import REGISTERED_MODEL_NAME, configure_tracking
+    from rag.dagshub_tracking import (
+        REGISTERED_MODEL_NAME,
+        configure_tracking,
+        tracked_registered_prediction,
+    )
 
-    configure_tracking()
+    configure_tracking(remote=True)
     versions = MlflowClient().search_model_versions(f"name = '{REGISTERED_MODEL_NAME}'")
     if not versions:
         raise ValueError("Nenhuma versão do RAG foi encontrada no Model Registry")
@@ -373,9 +399,15 @@ def test_registered_model() -> None:
     uri = f"models:/{REGISTERED_MODEL_NAME}/{version}"
     with console.status(f"Carregando {REGISTERED_MODEL_NAME} v{version}...", spinner="dots"):
         model = mlflow.pyfunc.load_model(uri)
-        output = model.predict(pd.DataFrame({"pergunta": [question], "modo": [mode]}))[0]
+        output, run_id = tracked_registered_prediction(
+            question,
+            mode,
+            version,
+            lambda: model.predict(pd.DataFrame({"pergunta": [question], "modo": [mode]}))[0],
+        )
     render_answer(json.loads(output))
     console.print(f"[green]Modelo testado:[/green] {REGISTERED_MODEL_NAME} v{version}")
+    console.print(f"[green]Execução MLflow:[/green] {run_id}")
 
 
 def publish_dagshub() -> None:
@@ -439,11 +471,12 @@ ACTIONS: dict[str, tuple[str, str, Callable[[], None]]] = {
     "6": ("Ver estado da base", "Mostra corpus e índice locais", status),
     "7": ("Avaliar respostas", "Registra análises e métricas no MLflow", evaluate_mlflow),
     "8": ("Benchmark AVeriTeC", "Baixa, prepara, indexa e avalia casos PT-BR", benchmark),
-    "9": ("Ver DagsHub", "Mostra o endereço do painel da equipe", open_mlflow),
+    "9": ("Abrir MLflow local", "Mostra as execuções registradas neste computador", open_mlflow),
     "10": ("Integrar novos datasets", "Baixa FakeRecogna, X-FACT, Fake.br e fragmenta textos", integrate_datasets),
     "11": ("Teste temporário", "Rastreia uma pergunta somente no MLflow local", temporary_test),
     "12": ("Testar versão registrada", "Baixa e executa uma versão do Model Registry", test_registered_model),
     "13": ("Publicar no DagsHub", "Registra o RAG e/ou os datasets da versão atual", publish_dagshub),
+    "14": ("Ver DagsHub", "Mostra o painel de versões compartilhadas", show_dagshub),
 }
 
 
