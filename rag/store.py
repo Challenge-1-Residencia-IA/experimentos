@@ -44,7 +44,10 @@ class VectorStore:
             current_metadata = old_metadata[0] if old_metadata else {}
             metadata_unchanged = all(
                 current_metadata.get(field) == document.get(field, "")
-                for field in ("kind", "source", "origin_group", "title", "url", "published_at")
+                for field in (
+                    "kind", "source", "origin_group", "title", "url", "published_at",
+                    "natureza", "license", "dataset_name",
+                )
             )
             if hashes == {document["content_hash"]} and old["ids"] and metadata_unchanged:
                 counts["unchanged"] += 1
@@ -67,6 +70,9 @@ class VectorStore:
                     "title": document["title"],
                     "url": document["url"],
                     "published_at": document.get("published_at", ""),
+                    "natureza": document.get("natureza", ""),
+                    "license": document.get("license", "verificar"),
+                    "dataset_name": document.get("dataset_name", ""),
                     "content_hash": document["content_hash"],
                     "chunk_index": index,
                 }
@@ -104,13 +110,18 @@ class VectorStore:
         )
         selected = []
         seen = {}
+        seen_documents = set()
         for identifier, text, metadata, distance in zip(
             result["ids"][0], result["documents"][0], result["metadatas"][0], result["distances"][0]
         ):
+            document_id = metadata["document_id"]
+            if document_id in seen_documents:
+                continue
             group = metadata["origin_group"]
             if seen.get(group, 0) >= max_per_source:
                 continue
             selected.append({"id": identifier, "text": text, "metadata": metadata, "distance": distance})
+            seen_documents.add(document_id)
             seen[group] = seen.get(group, 0) + 1
             if len(selected) == limit:
                 break

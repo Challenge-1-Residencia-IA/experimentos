@@ -38,8 +38,12 @@ def read_cases(path: Path) -> list[dict]:
             urls = case.get("urls_esperadas", [])
             if not isinstance(urls, list) or any(not isinstance(url, str) or not url for url in urls):
                 raise ValueError(f"Linha {number}: urls_esperadas deve ser uma lista de URLs")
+            reserved = case.get("espera_sem_evidencia", False)
+            if not isinstance(reserved, bool):
+                raise ValueError(f"Linha {number}: espera_sem_evidencia deve ser booleano")
             cases.append({"id": case.get("id", str(number)), "pergunta": case["pergunta"],
-                          "avaliacao_revisada": label, "urls_esperadas": urls})
+                          "avaliacao_revisada": label, "urls_esperadas": urls,
+                          "espera_sem_evidencia": reserved})
     if not cases:
         raise ValueError("O arquivo de casos está vazio")
     return cases
@@ -54,19 +58,21 @@ def git_revision() -> str:
     return result.stdout.strip() if result.returncode == 0 else "desconhecida"
 
 
-def summarize(details: list[dict]) -> dict[str, float]:
+def summarize(details: list[dict], *, retrieval_only: bool = False) -> dict[str, float]:
     total = len(details)
-    valid = [item for item in details if item["erro"] is None]
-    labeled = [item for item in details if item["avaliacao_revisada"] is not None and item["erro"] is None]
-    retrieval = [item for item in details if item["urls_esperadas"]]
+    completed = [item for item in details if item["erro"] is None]
+    valid = [item for item in completed if item["resposta"] is not None]
+    labeled = [item for item in valid if item["avaliacao_revisada"] is not None]
+    retrieval = [item for item in completed if item["urls_esperadas"]]
     metrics = {
         "casos": float(total),
-        "respostas_validas": float(len(valid)),
-        "casos_com_erro": float(total - len(valid)),
-        "taxa_erros": (total - len(valid)) / total,
-        "taxa_respostas_validas": len(valid) / total,
+        "casos_com_erro": float(total - len(completed)),
+        "taxa_erros": (total - len(completed)) / total,
         "latencia_media_s": sum(item["latencia_s"] for item in details) / total,
     }
+    if not retrieval_only:
+        metrics["respostas_validas"] = float(len(valid))
+        metrics["taxa_respostas_validas"] = len(valid) / total
     if valid:
         metrics["documentos_citados_media"] = sum(len(item["resposta"]["fontes"]) for item in valid) / len(valid)
         metrics["evidencias_citadas_media"] = sum(
@@ -95,6 +101,13 @@ def summarize(details: list[dict]) -> dict[str, float]:
             ) / len(expected_abstention)
     if valid:
         metrics["taxa_com_limitacoes"] = sum(bool(item["resposta"]["limitacoes"].strip()) for item in valid) / len(valid)
+    reserved = [item for item in valid if item.get("espera_sem_evidencia")]
+    if reserved:
+        metrics["casos_reservados_sem_evidencia"] = float(len(reserved))
+        metrics["taxa_resposta_inconclusiva_casos_reservados"] = sum(
+            item["avaliacao_evidencias"] in {"EVIDENCIAS_INSUFICIENTES", "EVIDENCIAS_CONFLITANTES"}
+            for item in reserved
+        ) / len(reserved)
     if retrieval:
         metrics[f"hit_at_{EVIDENCE_K}"] = sum(item["rank_url_esperada"] is not None for item in retrieval) / len(retrieval)
         metrics["mrr"] = sum(1 / item["rank_url_esperada"] for item in retrieval if item["rank_url_esperada"] is not None) / len(retrieval)
@@ -112,6 +125,7 @@ def evaluate(
     *,
     index_path: Path = STORE,
     corpus_path: Path = CORPUS,
+    retrieval_only: bool = False,
 ) -> tuple[dict, str, str]:
     load_dotenv(ROOT / ".env")
     cases_path = cases_path.resolve()
@@ -128,6 +142,7 @@ def evaluate(
             "casos_sha256": file_hash(cases_path),
             "corpus_sha256": file_hash(corpus_path),
             "index_path": str(index_path),
+            "retrieval_only": retrieval_only,
             **contract_fingerprint(SYSTEM_PROMPT, ANSWER_SCHEMA),
             "response_version": RESPONSE_VERSION,
             "git_revision": git_revision(),
@@ -167,18 +182,20 @@ def evaluate(
                 ideal = min(len(expected), len(item["urls_recuperadas"]))
                 idcg = sum(1 / math.log2(rank + 1) for rank in range(1, ideal + 1))
                 item["ndcg_at_k"] = dcg / idcg if idcg else 0.0
-                answer = ask(case["pergunta"], store, evidence=evidence, teaching=teaching, track=False)
-                item["avaliacao_evidencias"] = answer["avaliacao_evidencias"]
-                item["resposta"] = answer
+                if not retrieval_only:
+                    answer = ask(case["pergunta"], store, evidence=evidence, teaching=teaching, track=False)
+                    item["avaliacao_evidencias"] = answer["avaliacao_evidencias"]
+                    item["resposta"] = answer
             except Exception as error:
                 item["erro"] = f"{type(error).__name__}: {error}"
             item["latencia_s"] = round(time.perf_counter() - start, 3)
             details.append(item)
-            print(f"{case['id']}: {item['avaliacao_evidencias'] or 'ERRO'} ({item['latencia_s']:.1f}s)", flush=True)
-        metrics = summarize(details)
+            status = "RECUPERACAO" if retrieval_only and item["erro"] is None else item["avaliacao_evidencias"] or "ERRO"
+            print(f"{case['id']}: {status} ({item['latencia_s']:.1f}s)", flush=True)
+        metrics = summarize(details, retrieval_only=retrieval_only)
         mlflow.log_metrics(metrics)
         mlflow.log_dict({"metricas": metrics, "casos": details}, "avaliacao/relatorio.json")
-        mlflow.set_tag("avaliacao", "rag_completo")
+        mlflow.set_tag("avaliacao", "recuperacao" if retrieval_only else "rag_completo")
         return metrics, run.info.run_id, tracking_uri
 
 
@@ -189,9 +206,11 @@ def main() -> None:
     parser.add_argument("--run-name", help="Nome da execução no MLflow")
     parser.add_argument("--index-path", type=Path, default=STORE, help="Índice Chroma da avaliação")
     parser.add_argument("--corpus-path", type=Path, default=CORPUS, help="Corpus usado para criar o índice")
+    parser.add_argument("--retrieval-only", action="store_true", help="Mede apenas a busca, sem chamar o Qwen")
     args = parser.parse_args()
     metrics, run_id, tracking_uri = evaluate(
-        args.casos, args.run_name, index_path=args.index_path, corpus_path=args.corpus_path
+        args.casos, args.run_name, index_path=args.index_path, corpus_path=args.corpus_path,
+        retrieval_only=args.retrieval_only,
     )
     print(json.dumps({"metricas": metrics, "run_id": run_id, "tracking_uri": tracking_uri}, ensure_ascii=False, indent=2))
     print(f"MLflow: {tracking_uri}")

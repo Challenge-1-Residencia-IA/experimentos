@@ -47,11 +47,13 @@ checagens e avaliar a recuperação. Os comandos individuais continuam disponív
 
 ```bash
 python -m scripts.coletar_rag --config sources.json
+python -m scripts.converter_dataset_colega_rag
 python -m scripts.indexar_rag
 python -m scripts.perguntar_rag "Como posso verificar uma notícia?"
 python -m scripts.perguntar_rag "É verdade que ...?"
 python -m scripts.perguntar_rag "https://exemplo.org/noticia"
 python -m scripts.avaliar_rag_mlflow docs/casos_avaliacao_exemplo.jsonl
+python -m scripts.avaliar_rag_mlflow data/avaliacao/casos_dataset_colega.jsonl --retrieval-only
 python -m scripts.recalcular_metricas_mlflow
 python -m scripts.publicar_dataset_rag_mlflow
 python -m scripts.testar_modelo_dagshub "É verdade que ...?" --version 1 --modo web

@@ -12,8 +12,10 @@ import mlflow
 from rag.corpus import CORPUS, ROOT, read_corpus
 from rag.dagshub_tracking import configure_tracking
 
-DATASET_VERSION = "rag-datasets-v1"
+DATASET_VERSION = "rag-datasets-v2"
 BENCHMARK = ROOT / "data" / "benchmark_averitec"
+COLLEAGUE_CASES = ROOT / "data" / "avaliacao" / "casos_dataset_colega.jsonl"
+COLLEAGUE_MANIFEST = ROOT / "data" / "manifest_rag.json"
 
 
 def sha256(path: Path) -> str:
@@ -28,17 +30,28 @@ def jsonl_rows(path: Path) -> int:
 def main() -> None:
     files = {
         "corpus/documents.jsonl": CORPUS,
+    }
+    optional = {
+        "avaliacao/casos_dataset_colega.jsonl": COLLEAGUE_CASES,
+        "manifest_rag.json": COLLEAGUE_MANIFEST,
         "benchmark_averitec/casos.jsonl": BENCHMARK / "casos.jsonl",
         "benchmark_averitec/dev.json": BENCHMARK / "dev.json",
         "benchmark_averitec/documents.jsonl": BENCHMARK / "documents.jsonl",
         "benchmark_averitec/manifest.json": BENCHMARK / "manifest.json",
     }
-    missing = [str(path) for path in files.values() if not path.is_file()]
+    files.update({name: path for name, path in optional.items() if path.is_file()})
+    missing = [str(path) for path in (CORPUS, COLLEAGUE_CASES, COLLEAGUE_MANIFEST) if not path.is_file()]
     if missing:
         raise FileNotFoundError("Arquivos de dataset ausentes: " + ", ".join(missing))
 
     corpus = read_corpus(CORPUS)
     licenses = Counter(str(item.get("license", "não informada")) for item in corpus.values())
+    unreviewed = {name for name in licenses if name.casefold() in {"", "verificar", "não informada"}}
+    if unreviewed:
+        raise ValueError(
+            "Publicação bloqueada: revise a licença/condição de uso do corpus: "
+            + ", ".join(sorted(unreviewed))
+        )
     manifest = {
         "dataset_version": DATASET_VERSION,
         "visibility_required": "private",
@@ -54,8 +67,8 @@ def main() -> None:
         "corpus_kinds": dict(Counter(item["kind"] for item in corpus.values())),
         "corpus_licenses": dict(licenses),
         "notes": (
-            "Dados para pesquisa e avaliação do RAG. O corpus inclui conteúdo com "
-            "restrições Academic Use e CC BY-NC 4.0; não torne este artefato público."
+            "Dados para pesquisa e avaliação do RAG. Respeite as condições de uso "
+            "registradas no corpus e mantenha o artefato privado quando exigido."
         ),
     }
 
@@ -65,7 +78,7 @@ def main() -> None:
             "dataset_version": DATASET_VERSION,
             "corpus_documents": len(corpus),
             "corpus_sha256": manifest["files"]["corpus/documents.jsonl"]["sha256"],
-            "benchmark_cases": manifest["files"]["benchmark_averitec/casos.jsonl"]["rows"],
+            "evaluation_cases": manifest["files"]["avaliacao/casos_dataset_colega.jsonl"]["rows"],
         })
         for artifact_name, path in files.items():
             mlflow.log_artifact(str(path), artifact_path=str(Path("datasets") / Path(artifact_name).parent))
@@ -75,7 +88,7 @@ def main() -> None:
         print(json.dumps({"tracking_uri": uri, "run_id": run.info.run_id,
                           "dataset_version": DATASET_VERSION,
                           "corpus_documents": len(corpus),
-                          "benchmark_cases": manifest["files"]["benchmark_averitec/casos.jsonl"]["rows"]},
+                          "evaluation_cases": manifest["files"]["avaliacao/casos_dataset_colega.jsonl"]["rows"]},
                          ensure_ascii=False, indent=2))
 
 

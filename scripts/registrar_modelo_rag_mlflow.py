@@ -48,6 +48,12 @@ def main() -> None:
         raise FileNotFoundError("Índice Chroma e corpus são necessários para registrar o RAG")
     documents = read_corpus()
     licenses = dict(Counter(str(item.get("license", "não informada")) for item in documents.values()))
+    unreviewed = {name for name in licenses if name.casefold() in {"", "verificar", "não informada"}}
+    if unreviewed:
+        raise ValueError(
+            "Registro remoto bloqueado: revise a licença/condição de uso do corpus: "
+            + ", ".join(sorted(unreviewed))
+        )
     qwen = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
     digest = ollama_digest(qwen)
     revision = embedding_revision()
@@ -56,7 +62,9 @@ def main() -> None:
     source_hashes = {file: sha256(ROOT / file) for file in (
         "rag/corpus.py", "rag/store.py", "rag/tutor.py", "rag/mlflow_model.py",
         "rag/dagshub_tracking.py", "rag/web.py", "web_sources.json",
-        "prompts/tutora_rag.txt")}
+        "prompts/tutora_rag.txt", "scripts/converter_dataset_colega_rag.py")}
+    dataset_manifest = ROOT / "data" / "manifest_rag.json"
+    evaluation_cases = ROOT / "data" / "avaliacao" / "casos_dataset_colega.jsonl"
     manifest = {
         "response_version": RESPONSE_VERSION,
         "ollama_model": qwen,
@@ -68,6 +76,8 @@ def main() -> None:
         "web_sources_sha256": sha256(ROOT / "web_sources.json"),
         "document_count": len(documents),
         "licenses": licenses,
+        "dataset_manifest_sha256": sha256(dataset_manifest) if dataset_manifest.is_file() else "ausente",
+        "evaluation_cases_sha256": sha256(evaluation_cases) if evaluation_cases.is_file() else "ausente",
         "source_sha256": source_hashes,
         "git_revision": git_revision(),
         "contract": contract_fingerprint(SYSTEM_PROMPT, ANSWER_SCHEMA),
@@ -93,11 +103,16 @@ def main() -> None:
         mlflow.log_dict(manifest, "versao/manifest.json")
         mlflow.log_dict(ANSWER_SCHEMA, "versao/schema.json")
         mlflow.log_text(SYSTEM_PROMPT, "versao/prompt.txt")
+        artifacts = {"index": str(STORE), "corpus": str(CORPUS),
+                     "web_sources": str(ROOT / "web_sources.json")}
+        if dataset_manifest.is_file():
+            artifacts["dataset_manifest"] = str(dataset_manifest)
+        if evaluation_cases.is_file():
+            artifacts["evaluation_cases"] = str(evaluation_cases)
         model = mlflow.pyfunc.log_model(
             artifact_path="modelo_rag",
             python_model=RAGModel(qwen, digest, MODEL, revision),
-            artifacts={"index": str(STORE), "corpus": str(CORPUS),
-                       "web_sources": str(ROOT / "web_sources.json")},
+            artifacts=artifacts,
             code_paths=[str(ROOT / "rag"), str(ROOT / "prompts")],
             pip_requirements=requirements,
             metadata=manifest,

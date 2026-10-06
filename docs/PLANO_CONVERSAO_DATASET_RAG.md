@@ -1,6 +1,6 @@
 # Plano de conversão do dataset para o RAG
 
-Status: **decisão registrada; script de conversão ainda será implementado**.
+Status: **implementado e executado em 6 de outubro de 2026**.
 
 Este documento define quais dados entram no RAG, quais ficam reservados para
 avaliação e o fluxo necessário para gerar o corpus, atualizar o ChromaDB,
@@ -45,9 +45,9 @@ Os materiais educativos configurados em `sources.json` continuam em uma
 coleção separada, `materiais_educativos`. Eles ensinam o método de verificação,
 mas não contam como evidência factual da alegação.
 
-## Script a implementar
+## Script implementado
 
-Criar `scripts/converter_dataset_colega_rag.py`. Ele deve converter os dois
+O arquivo `scripts/converter_dataset_colega_rag.py` converte os dois
 Parquet para os formatos já lidos pelo projeto, sem gerar embeddings dentro da
 conversão.
 
@@ -156,9 +156,9 @@ Os dados continuam ignorados pelo Git por tamanho, licença e privacidade.
 
 ## Atualização segura do banco vetorial
 
-Depois de implementar o conversor, executar a indexação primeiro em um banco
-novo. Para isso, `scripts/indexar_rag.py` deve receber `--corpus-path` e
-`--index-path` e repassar esses caminhos a `VectorStore`:
+Para recriar o índice, execute a indexação primeiro em um banco novo.
+`scripts/indexar_rag.py` recebe `--corpus-path` e `--index-path` e repassa
+esses caminhos a `VectorStore`:
 
 ```bash
 python -m scripts.indexar_rag \
@@ -207,7 +207,7 @@ Esses trechos entram no prompt enviado ao Qwen, que gera a análise estruturada
 com evidências, contexto, pontos de atenção e limitações. Cada consulta registra
 parâmetros, métricas e artefatos no MLflow local.
 
-## Execução depois da implementação
+## Como executar novamente
 
 1. Se os dados brutos mudarem, executar `python -m dados.preparar`.
 2. Executar o conversor e conferir `data/manifest_rag.json`.
@@ -240,3 +240,21 @@ parâmetros, métricas e artefatos no MLflow local.
   registrados juntos em uma nova versão do Model Registry;
 - condição de uso do FakeTrue.Br revisada antes de enviar o conteúdo ao
   DagsHub.
+
+## Resultado da primeira execução
+
+- 1.073 documentos de evidência e 2 materiais educativos;
+- 2 duplicatas exatas removidas com remapeamento das URLs esperadas;
+- 3.788 chunks de evidência e 4 chunks educativos no ChromaDB;
+- 1.440 casos com URL esperada e 351 casos reservados;
+- zero URLs reservadas no corpus;
+- avaliação de recuperação registrada no MLflow local no run
+  `93de9220cd1045fe8ff8c9fb45bc6aa2`;
+- Hit@6 de 77,99%, MRR de 0,7093, Recall@6 de 77,99% e zero erros;
+- teste completo com o Qwen registrado no run
+  `12f35815a7764ae793f202b1bd4f7f55`.
+
+O índice validado foi promovido para `vector_store/chroma`. O índice vazio
+anterior foi preservado em `vector_store/chroma_before_dataset_colega`.
+A publicação no DagsHub permanece bloqueada porque o README disponível do
+FakeTrue.Br não declara uma licença. O corpus está marcado como `verificar`.
