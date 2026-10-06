@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable
 
@@ -20,6 +22,8 @@ ROOT = Path(__file__).resolve().parent
 CORPUS = ROOT / "data" / "documents.jsonl"
 INDEX = ROOT / "vector_store" / "chroma"
 CANDIDATES = ROOT / "data" / "candidatas_checagens.jsonl"
+EXAMPLE_CASES = ROOT / "docs" / "casos_avaliacao_exemplo.jsonl"
+REVIEWED_CASES = ROOT / "data" / "avaliacao" / "casos.jsonl"
 console = Console()
 
 
@@ -31,6 +35,33 @@ def resolve_path(value: str) -> Path:
 def default_config() -> Path:
     custom = ROOT / "sources.json"
     return custom if custom.exists() else ROOT / "sources.example.json"
+
+
+def default_cases() -> Path:
+    """Prefere casos revisados locais e usa o exemplo versionado como fallback."""
+    return REVIEWED_CASES if REVIEWED_CASES.exists() else EXAMPLE_CASES
+
+
+@contextmanager
+def temporary_mlflow(path: Path):
+    """Isola uma ação no MLflow local e restaura o ambiente ao terminar."""
+    base = path.expanduser().resolve()
+    base.mkdir(parents=True, exist_ok=True)
+    variables = {
+        "MLFLOW_TRACKING_URI": f"sqlite:///{base / 'mlflow.db'}",
+        "MLFLOW_LOCAL_ARTIFACT_ROOT": str(base / "artifacts"),
+        "MLFLOW_EXPERIMENT_NAME": "NexoVerdict-Temporario",
+    }
+    previous = {name: os.environ.get(name) for name in variables}
+    os.environ.update(variables)
+    try:
+        yield base
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def corpus_counts() -> dict[str, int]:
@@ -211,8 +242,8 @@ def discover() -> None:
 
 
 def evaluate() -> None:
-    default = "data/avaliacao/casos.jsonl"
-    path = resolve_path(Prompt.ask("Arquivo de casos revisados", default=default))
+    default = default_cases()
+    path = resolve_path(Prompt.ask("Arquivo de casos revisados", default=str(default.relative_to(ROOT))))
     if not path.is_file():
         raise FileNotFoundError(f"Arquivo de avaliação não encontrado: {path}")
     k = IntPrompt.ask("Quantos resultados examinar", default=5)
@@ -245,12 +276,16 @@ def status() -> None:
     table.add_row("Checagens candidatas", "presente" if CANDIDATES.exists() else "nenhuma")
     benchmark_cases = ROOT / "data" / "benchmark_averitec" / "casos.jsonl"
     table.add_row("Benchmark AVeriTeC", "preparado" if benchmark_cases.exists() else "ainda não preparado")
+    from rag.dagshub_tracking import tracking_uri
+
+    table.add_row("MLflow padrão", tracking_uri())
+    table.add_row("Modelo Ollama", os.getenv("OLLAMA_MODEL", "qwen2.5:7b"))
     console.print(table)
 
 
 def evaluate_mlflow() -> None:
-    default = "data/avaliacao/casos.jsonl"
-    path = resolve_path(Prompt.ask("Arquivo de casos", default=default))
+    default = default_cases()
+    path = resolve_path(Prompt.ask("Arquivo de casos", default=str(default.relative_to(ROOT))))
     if not path.is_file():
         raise FileNotFoundError(f"Arquivo de avaliação não encontrado: {path}")
     from scripts.avaliar_rag_mlflow import evaluate as evaluate_full
@@ -283,6 +318,82 @@ def open_mlflow() -> None:
     from rag.dagshub_tracking import tracking_uri
 
     console.print(Panel(f"Painel da equipe: {tracking_uri()}", title="DagsHub", border_style="green"))
+
+
+def temporary_test() -> None:
+    """Executa uma pergunta rastreada somente em um diretório local descartável."""
+    location = resolve_path(Prompt.ask(
+        "Diretório do MLflow temporário", default="/tmp/nexoverdict-mlflow-teste"
+    ))
+    mode = Prompt.ask("Fontes do teste", choices=["web", "local"], default="local")
+    question = Prompt.ask("Pergunta ou alegação").strip()
+    if not question:
+        raise ValueError("Digite uma pergunta ou alegação")
+
+    from rag.store import VectorStore
+    from rag.tutor import ask, ask_online
+    from rag.web import WebResearcher
+
+    with temporary_mlflow(location) as base:
+        store = VectorStore()
+        with console.status("Executando teste temporário...", spinner="dots"):
+            if mode == "web":
+                answer = ask_online(question, WebResearcher(), store=store)
+            else:
+                answer = ask(question, store=store,
+                             tracking_context={"modo": "local_temporario"})
+        render_answer(answer)
+        console.print(Panel(
+            f"Banco: {base / 'mlflow.db'}\nArtefatos: {base / 'artifacts'}\n"
+            "Esta execução não foi enviada ao DagsHub.",
+            title="MLflow temporário",
+            border_style="green",
+        ))
+
+
+def test_registered_model() -> None:
+    """Baixa e executa uma versão do RAG registrada no DagsHub."""
+    import mlflow
+    import pandas as pd
+    from mlflow.tracking import MlflowClient
+
+    from rag.dagshub_tracking import REGISTERED_MODEL_NAME, configure_tracking
+
+    configure_tracking()
+    versions = MlflowClient().search_model_versions(f"name = '{REGISTERED_MODEL_NAME}'")
+    if not versions:
+        raise ValueError("Nenhuma versão do RAG foi encontrada no Model Registry")
+    latest = str(max(int(item.version) for item in versions))
+    version = Prompt.ask("Versão registrada", default=latest)
+    mode = Prompt.ask("Fontes do teste", choices=["web", "local"], default="web")
+    question = Prompt.ask("Pergunta ou alegação").strip()
+    if not question:
+        raise ValueError("Digite uma pergunta ou alegação")
+
+    uri = f"models:/{REGISTERED_MODEL_NAME}/{version}"
+    with console.status(f"Carregando {REGISTERED_MODEL_NAME} v{version}...", spinner="dots"):
+        model = mlflow.pyfunc.load_model(uri)
+        output = model.predict(pd.DataFrame({"pergunta": [question], "modo": [mode]}))[0]
+    render_answer(json.loads(output))
+    console.print(f"[green]Modelo testado:[/green] {REGISTERED_MODEL_NAME} v{version}")
+
+
+def publish_dagshub() -> None:
+    """Publica modelo, datasets ou ambos no DagsHub configurado."""
+    target = Prompt.ask(
+        "O que publicar?", choices=["modelo", "datasets", "ambos"], default="modelo"
+    )
+    if target in {"modelo", "ambos"}:
+        from scripts.registrar_modelo_rag_mlflow import main as register_model
+
+        with console.status("Empacotando e registrando o RAG...", spinner="dots"):
+            register_model()
+    if target in {"datasets", "ambos"}:
+        from scripts.publicar_dataset_rag_mlflow import main as publish_datasets
+
+        with console.status("Publicando datasets e manifesto...", spinner="dots"):
+            publish_datasets()
+    console.print("[green]Publicação concluída no DagsHub.[/green]")
 
 
 def integrate_datasets() -> None:
@@ -330,6 +441,9 @@ ACTIONS: dict[str, tuple[str, str, Callable[[], None]]] = {
     "8": ("Benchmark AVeriTeC", "Baixa, prepara, indexa e avalia casos PT-BR", benchmark),
     "9": ("Ver DagsHub", "Mostra o endereço do painel da equipe", open_mlflow),
     "10": ("Integrar novos datasets", "Baixa FakeRecogna, X-FACT, Fake.br e fragmenta textos", integrate_datasets),
+    "11": ("Teste temporário", "Rastreia uma pergunta somente no MLflow local", temporary_test),
+    "12": ("Testar versão registrada", "Baixa e executa uma versão do Model Registry", test_registered_model),
+    "13": ("Publicar no DagsHub", "Registra o RAG e/ou os datasets da versão atual", publish_dagshub),
 }
 
 
