@@ -7,3 +7,12 @@ requests
 scikit-learn
 huggingface_hub
 python-dotenv
+jupyterlab
+matplotlib
+nltk
+pyarrow
+pytest
+tabulate
+-e .
+rich
+seaborn
