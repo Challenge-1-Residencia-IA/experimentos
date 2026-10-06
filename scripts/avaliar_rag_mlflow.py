@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -15,6 +14,7 @@ import mlflow
 from dotenv import load_dotenv
 
 from rag.corpus import CORPUS, ROOT
+from rag.dagshub_tracking import REGISTERED_MODEL_NAME, configure_tracking, contract_fingerprint, matching_model_version
 from rag.store import MODEL, STORE, VectorStore
 from rag.tutor import SYSTEM_PROMPT, ANSWER_SCHEMA, EVALUATIONS, RESPONSE_VERSION, ask
 
@@ -94,13 +94,7 @@ def evaluate(
     index_path = index_path.resolve()
     corpus_path = corpus_path.resolve()
     cases = read_cases(cases_path)
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI") or f"sqlite:///{ROOT / 'mlflow.db'}"
-    experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", "NexoVerdict-RAG")
-    mlflow.set_tracking_uri(tracking_uri)
-    experiment = mlflow.get_experiment_by_name(experiment_name)
-    if experiment is None:
-        mlflow.create_experiment(experiment_name, artifact_location=(ROOT / "mlartifacts" / "rag").as_uri())
-    mlflow.set_experiment(experiment_name)
+    tracking_uri = configure_tracking()
     with mlflow.start_run(run_name=run_name or f"avaliacao-{cases_path.stem}") as run:
         mlflow.log_params({
             "ollama_model": os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
@@ -110,13 +104,17 @@ def evaluate(
             "casos_sha256": file_hash(cases_path),
             "corpus_sha256": file_hash(corpus_path),
             "index_path": str(index_path),
-            "prompt_sha256": hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
-            "schema_sha256": hashlib.sha256(json.dumps(ANSWER_SCHEMA, sort_keys=True).encode()).hexdigest(),
+            **contract_fingerprint(SYSTEM_PROMPT, ANSWER_SCHEMA),
             "response_version": RESPONSE_VERSION,
             "git_revision": git_revision(),
         })
+        version = matching_model_version(contract_fingerprint(SYSTEM_PROMPT, ANSWER_SCHEMA)["contract_sha256"], file_hash(corpus_path))
+        if version:
+            mlflow.set_tags({"registered_model_name": REGISTERED_MODEL_NAME,
+                             "registered_model_version": version})
         mlflow.log_text(SYSTEM_PROMPT, "versao/prompt.txt")
         mlflow.log_dict(ANSWER_SCHEMA, "versao/schema.json")
+        mlflow.log_artifact(str(ROOT / "rag" / "tutor.py"), artifact_path="versao")
         if not index_path.exists():
             raise FileNotFoundError("Banco vetorial ausente. Execute a indexação antes da avaliação.")
         store = VectorStore(path=index_path)
@@ -134,7 +132,7 @@ def evaluate(
                 item["rank_url_esperada"] = next(
                     (rank for rank, url in enumerate(item["urls_recuperadas"], 1) if url in expected), None
                 )
-                answer = ask(case["pergunta"], store, evidence=evidence, teaching=teaching)
+                answer = ask(case["pergunta"], store, evidence=evidence, teaching=teaching, track=False)
                 item["avaliacao_evidencias"] = answer["avaliacao_evidencias"]
                 item["resposta"] = answer
             except Exception as error:
@@ -161,7 +159,7 @@ def main() -> None:
         args.casos, args.run_name, index_path=args.index_path, corpus_path=args.corpus_path
     )
     print(json.dumps({"metricas": metrics, "run_id": run_id, "tracking_uri": tracking_uri}, ensure_ascii=False, indent=2))
-    print(f"Abra o painel: {sys.executable} -m mlflow ui --backend-store-uri {tracking_uri}")
+    print(f"Painel DagsHub: {tracking_uri}")
 
 
 if __name__ == "__main__":

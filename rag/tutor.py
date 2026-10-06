@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import os
 import re
 import unicodedata
@@ -12,6 +11,7 @@ import requests
 from dotenv import load_dotenv
 
 from rag.corpus import ROOT
+from rag.dagshub_tracking import REGISTERED_MODEL_NAME, configure_tracking, contract_fingerprint, git_revision, matching_model_version
 from rag.store import VectorStore
 
 SYSTEM_PROMPT = (ROOT / "prompts" / "tutora_rag.txt").read_text(encoding="utf-8")
@@ -63,6 +63,9 @@ def ask(
     teaching: list[dict] | None = None,
     history: list[dict] | None = None,
     publication: dict | None = None,
+    track: bool = True,
+    model_name: str | None = None,
+    tracking_context: dict | None = None,
 ) -> dict:
     load_dotenv(ROOT / ".env")
     if evidence is None or teaching is None:
@@ -84,47 +87,55 @@ def ask(
             "data": metadata.get("published_at", ""),
             "qualificada": metadata.get("conclusive_eligible", True),
             "trecho": item["text"],
+            "distancia_vetorial": item.get("distance"),
         })
     prompt = json.dumps({"pergunta": question, "documentos": items,
                          "publicacao_enviada": publication,
                          "historico": (history or [])[-4:]}, ensure_ascii=False)
-    payload = ollama_json(SYSTEM_PROMPT, prompt, ANSWER_SCHEMA)
+    payload = ollama_json(SYSTEM_PROMPT, prompt, ANSWER_SCHEMA, model_name=model_name)
     answer = validate_answer(payload, items)
-    _track_answer(question, items, payload, answer)
+    if track:
+        _track_answer(question, items, payload, answer, tracking_context)
     return answer
 
 
-def _track_answer(question: str, items: list[dict], payload: dict, answer: dict) -> None:
+def _track_answer(question: str, items: list[dict], payload: dict, answer: dict,
+                  tracking_context: dict | None = None) -> None:
     """Registra cada consulta e a especificação exata da resposta no MLflow."""
     import mlflow
 
-    uri = os.getenv("MLFLOW_TRACKING_URI") or f"sqlite:///{ROOT / 'mlflow.db'}"
-    name = os.getenv("MLFLOW_EXPERIMENT_NAME", "NexoVerdict-RAG")
-    mlflow.set_tracking_uri(uri)
-    experiment = mlflow.get_experiment_by_name(name)
-    if experiment is None:
-        mlflow.create_experiment(name, artifact_location=(ROOT / "mlartifacts" / "rag").as_uri())
-    mlflow.set_experiment(name)
+    configure_tracking()
+    from rag.corpus import CORPUS
+    import hashlib
+
+    corpus_hash = hashlib.sha256(CORPUS.read_bytes()).hexdigest() if CORPUS.exists() else "ausente"
+    contract_hash = contract_fingerprint(SYSTEM_PROMPT, ANSWER_SCHEMA)["contract_sha256"]
+    registered_version = matching_model_version(contract_hash, corpus_hash)
     with mlflow.start_run(run_name="consulta-analise", nested=mlflow.active_run() is not None):
         mlflow.log_params({
             "response_version": RESPONSE_VERSION,
-            "prompt_sha256": hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest(),
-            "schema_sha256": hashlib.sha256(json.dumps(ANSWER_SCHEMA, sort_keys=True).encode()).hexdigest(),
+            **contract_fingerprint(SYSTEM_PROMPT, ANSWER_SCHEMA),
             "ollama_model": os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
+            "git_revision": git_revision(),
         })
         mlflow.log_text(SYSTEM_PROMPT, "versao/prompt.txt")
         mlflow.log_dict(ANSWER_SCHEMA, "versao/schema.json")
         mlflow.log_dict({"pergunta": question, "documentos": items,
+                         "contexto_execucao": tracking_context or {"modo": "local"},
                          "saida_modelo": payload, "resposta": answer}, "consulta/rastreio.json")
         mlflow.set_tag("avaliacao_evidencias", answer["avaliacao_evidencias"])
+        if registered_version:
+            mlflow.set_tags({"registered_model_name": REGISTERED_MODEL_NAME,
+                             "registered_model_version": registered_version})
 
 
-def ollama_json(system: str, user: str, schema: dict) -> dict:
+def ollama_json(system: str, user: str, schema: dict,
+                *, model_name: str | None = None) -> dict:
     load_dotenv(ROOT / ".env")
     endpoint = os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat")
     response = requests.post(
         endpoint,
-        json={"model": os.getenv("OLLAMA_MODEL", "qwen2.5:7b"), "stream": False,
+        json={"model": model_name or os.getenv("OLLAMA_MODEL", "qwen2.5:7b"), "stream": False,
               "format": schema, "options": {"temperature": 0},
               "messages": [{"role": "system", "content": system},
                            {"role": "user", "content": user}]},
@@ -134,7 +145,7 @@ def ollama_json(system: str, user: str, schema: dict) -> dict:
     return json.loads(response.json()["message"]["content"])
 
 
-def extract_claim(page: dict, focus: str = "") -> tuple[str, bool]:
+def extract_claim(page: dict, focus: str = "", *, model_name: str | None = None) -> tuple[str, bool]:
     schema = {"type": "object", "properties": {
         "alegacao": {"type": "string"}, "verificavel": {"type": "boolean"}},
         "required": ["alegacao", "verificavel"]}
@@ -148,7 +159,8 @@ def extract_claim(page: dict, focus: str = "") -> tuple[str, bool]:
     )
     payload = ollama_json(system, json.dumps({"pedido_do_usuario": focus[:500],
                                             "titulo": page["title"],
-                                            "texto": page["text"][:8000]}, ensure_ascii=False), schema)
+                                            "texto": page["text"][:8000]}, ensure_ascii=False), schema,
+                          model_name=model_name)
     claim = payload.get("alegacao", "")
     if not isinstance(claim, str) or not isinstance(payload.get("verificavel"), bool):
         raise ValueError("O modelo não conseguiu extrair a afirmação do link")
@@ -187,7 +199,8 @@ def _local_evidence(store: VectorStore, claim: str, excluded_groups: set[str]) -
 
 
 def ask_online(message: str, researcher, store: VectorStore | None = None,
-               history: list[dict] | None = None) -> dict:
+               history: list[dict] | None = None, *, track: bool = True,
+               model_name: str | None = None) -> dict:
     """Pesquisa páginas atuais, seleciona trechos e gera a resposta educativa."""
     from rag.web import passages, split_input
 
@@ -199,7 +212,7 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
         page = researcher.page(url)
         publication = {"url": page["url"], "titulo": page["title"],
                        "data": page["date"], "trecho": page["text"][:1200]}
-        claim, verifiable = extract_claim(page, focus=text)
+        claim, verifiable = extract_claim(page, focus=text, model_name=model_name)
         if not verifiable or not claim:
             answer = {"afirmacao": "Nenhuma alegação factual verificável foi identificada.",
                     "evidencias_favoraveis": [], "evidencias_contrarias": [],
@@ -208,7 +221,8 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
                     "limitacoes": "A extração automática da alegação pode precisar de revisão.",
                     "fontes": [], "fonte_enviada": publication, "pesquisa_web": None,
                     "limite_da_validacao": "A extração automática da alegação pode precisar de revisão."}
-            _track_answer(message, [], answer, answer)
+            if track:
+                _track_answer(message, [], answer, answer)
             return answer
     else:
         claim = text
@@ -230,7 +244,10 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
     diagnostics["evidencias_locais"] = len(local)
     teaching = store.search(claim, "educativo", limit=3, max_per_source=2)
     answer = ask(claim, store, evidence=evidence, teaching=teaching,
-                 history=history, publication=publication)
+                 history=history, publication=publication, track=track,
+                 model_name=model_name,
+                 tracking_context={"modo": "web", "pesquisa_web": diagnostics,
+                                   "publicacao_enviada": publication})
     answer["alegacao_verificada"] = claim
     answer["fonte_enviada"] = publication
     answer["pesquisa_web"] = diagnostics

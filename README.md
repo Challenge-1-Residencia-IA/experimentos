@@ -7,11 +7,11 @@ alegação e apresenta uma análise das evidências sem emitir veredito.
 Cada resposta mostra afirmação, evidências favoráveis e contrárias, contexto,
 pontos de atenção, avaliação das evidências e limitações. A avaliação descreve
 o estado das fontes consultadas; não classifica a alegação como verdadeira ou falsa.
-O prompt e o esquema JSON têm versão `analise-evidencias-v1`. Cada consulta
-registra no MLflow a pergunta, os documentos recuperados, a saída original do
-modelo, a resposta validada, o modelo e os arquivos do prompt e do esquema.
-Para registrar apenas a versão atual, sem consultar o modelo, execute
-`.venv/bin/python -m scripts.versionar_resposta_mlflow`.
+O prompt e o esquema JSON têm versão `analise-evidencias-v1`. Configure o
+repositório da equipe no DagsHub conforme [o guia de versionamento](docs/VERSIONAMENTO_DAGSHUB.md)
+e publique a versão com `.venv/bin/python -m scripts.registrar_modelo_rag_mlflow`.
+Cada consulta registra no MLflow do DagsHub a pergunta, as fontes, a saída do
+modelo, a resposta validada e o hash do contrato de resposta.
 
 ## Início rápido
 
@@ -51,6 +51,8 @@ python -m scripts.perguntar_rag "Como posso verificar uma notícia?"
 python -m scripts.perguntar_rag "É verdade que ...?"
 python -m scripts.perguntar_rag "https://exemplo.org/noticia"
 python -m scripts.avaliar_rag_mlflow docs/casos_avaliacao_exemplo.jsonl
+python -m scripts.publicar_dataset_rag_mlflow
+python -m scripts.testar_modelo_dagshub "É verdade que ...?" --version 1 --modo web
 python -m scripts.testar_benchmark_averitec --per-class 10
 ```
 
@@ -62,17 +64,17 @@ locais continuam úteis para ensinar o método e cobrir informações já revisa
 O arquivo `web_sources.json` controla quais domínios podem contribuir para
 um veredito conclusivo e quais não são coletados automaticamente.
 
-Para acompanhar avaliações, use a opção 9 do menu ou execute
-`.venv/bin/python -m mlflow ui --backend-store-uri "sqlite:///$(pwd)/mlflow.db"`
-e abra `http://127.0.0.1:5000`. O exemplo de
-avaliação mostra a lacuna factual da base inicial; as métricas de veredito e
-recuperação só ficam úteis com casos revisados e evidências indexadas.
+Para acompanhar avaliações, use a opção 9 do menu e abra o painel DagsHub da
+equipe. O exemplo de avaliação mostra a lacuna factual da base inicial; as
+métricas de avaliação das evidências e recuperação exigem casos revisados e
+evidências indexadas.
 O benchmark AVeriTeC usa dados e índice separados da base principal; veja
 [docs/RAG_TUTORA.md](docs/RAG_TUTORA.md) para o protocolo e as limitações.
 
 O guia completo de fontes, formatos, atualização incremental e avaliação está
 em [docs/RAG_TUTORA.md](docs/RAG_TUTORA.md). Dados e índice vetorial são
-mantidos localmente em `data/` e `vector_store/`.
+mantidos localmente em `data/` e `vector_store/` e empacotados no Model Registry
+quando uma versão é publicada no repositório privado do DagsHub.
 
 `requirements.txt` preserva as dependências dos experimentos antigos de
 fine-tuning. O código do RAG usa `requirements-rag.txt`.

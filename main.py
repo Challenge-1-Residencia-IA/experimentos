@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Callable
 
 import requests
-from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import IntPrompt, Prompt
@@ -191,8 +189,11 @@ def talk() -> None:
             console.print(f"[red]Não foi possível investigar:[/red] {type(error).__name__}: {error}")
             continue
         render_answer(answer)
+        summary = " ".join(part for part in (
+            answer.get("contexto", ""), answer.get("limitacoes", "")
+        ) if part)
         history.append({"pergunta": answer.get("alegacao_verificada", question),
-                        "resposta": answer["analise"][:500]})
+                        "resposta": summary[:500]})
 
 
 def discover() -> None:
@@ -262,7 +263,7 @@ def evaluate_mlflow() -> None:
         table.add_row(name, f"{value:.3f}")
     console.print(table)
     console.print(f"[green]Execução MLflow:[/green] {run_id}")
-    console.print(f"[dim]Painel: {sys.executable} -m mlflow ui --backend-store-uri {tracking_uri}[/dim]")
+    console.print(f"[dim]Painel DagsHub: {tracking_uri}[/dim]")
 
 
 def benchmark() -> None:
@@ -279,20 +280,9 @@ def benchmark() -> None:
 
 
 def open_mlflow() -> None:
-    load_dotenv(ROOT / ".env")
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI") or f"sqlite:///{ROOT / 'mlflow.db'}"
-    port = IntPrompt.ask("Porta da interface", default=5000)
-    command = [sys.executable, "-m", "mlflow", "ui", "--backend-store-uri",
-               tracking_uri, "--port", str(port)]
-    console.print(Panel(f"Acesse http://127.0.0.1:{port}\nPressione Ctrl+C para voltar.",
-                        title="MLflow", border_style="green"))
-    try:
-        result = subprocess.run(command, cwd=ROOT, check=False)
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Servidor MLflow encerrado.[/yellow]")
-    else:
-        if result.returncode:
-            console.print(f"[red]MLflow terminou com código {result.returncode}.[/red]")
+    from rag.dagshub_tracking import tracking_uri
+
+    console.print(Panel(f"Painel da equipe: {tracking_uri()}", title="DagsHub", border_style="green"))
 
 
 def integrate_datasets() -> None:
@@ -338,7 +328,7 @@ ACTIONS: dict[str, tuple[str, str, Callable[[], None]]] = {
     "6": ("Ver estado da base", "Mostra corpus e índice locais", status),
     "7": ("Avaliar respostas", "Registra análises e métricas no MLflow", evaluate_mlflow),
     "8": ("Benchmark AVeriTeC", "Baixa, prepara, indexa e avalia casos PT-BR", benchmark),
-    "9": ("Abrir MLflow", "Inicia o painel com o Python deste ambiente", open_mlflow),
+    "9": ("Ver DagsHub", "Mostra o endereço do painel da equipe", open_mlflow),
     "10": ("Integrar novos datasets", "Baixa FakeRecogna, X-FACT, Fake.br e fragmenta textos", integrate_datasets),
 }
 

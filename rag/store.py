@@ -15,9 +15,10 @@ COLLECTIONS = {"evidencia": "evidencias", "educativo": "materiais_educativos"}
 
 
 class VectorStore:
-    def __init__(self, path: Path = STORE, model_name: str = MODEL):
+    def __init__(self, path: Path = STORE, model_name: str = MODEL,
+                 model_revision: str | None = None):
         self.model_name = model_name
-        self.encoder = SentenceTransformer(model_name)
+        self.encoder = SentenceTransformer(model_name, revision=model_revision)
         self.client = chromadb.PersistentClient(path=str(path))
         self.collections = {
             kind: self.client.get_or_create_collection(
