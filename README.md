@@ -86,5 +86,11 @@ em [docs/RAG_TUTORA.md](docs/RAG_TUTORA.md). Dados e índice vetorial são
 mantidos localmente em `data/` e `vector_store/` e empacotados no Model Registry
 quando uma versão é publicada no repositório privado do DagsHub.
 
+A decisão sobre os datasets do colega e a especificação do conversor para o
+formato do RAG estão em
+[docs/PLANO_CONVERSAO_DATASET_RAG.md](docs/PLANO_CONVERSAO_DATASET_RAG.md).
+O plano também descreve a atualização segura do ChromaDB, a avaliação no
+MLflow e a publicação da nova versão no DagsHub.
+
 `requirements.txt` preserva as dependências dos experimentos antigos de
 fine-tuning. O código do RAG usa `requirements-rag.txt`.
