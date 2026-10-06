@@ -7,7 +7,7 @@ alegação e apresenta uma análise das evidências sem emitir veredito.
 Cada resposta mostra afirmação, evidências favoráveis e contrárias, contexto,
 pontos de atenção, avaliação das evidências e limitações. A avaliação descreve
 o estado das fontes consultadas; não classifica a alegação como verdadeira ou falsa.
-O prompt e o esquema JSON têm versão `analise-evidencias-v1`. Configure o
+O prompt e o esquema JSON têm versão `analise-evidencias-v2`. Configure o
 repositório da equipe no DagsHub conforme [o guia de versionamento](docs/VERSIONAMENTO_DAGSHUB.md)
 e publique a versão com `.venv/bin/python -m scripts.registrar_modelo_rag_mlflow`.
 Cada consulta registra automaticamente no MLflow local a pergunta, as fontes,

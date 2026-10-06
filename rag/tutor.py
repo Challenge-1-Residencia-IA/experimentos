@@ -7,6 +7,7 @@ import os
 import re
 import time
 import unicodedata
+from copy import deepcopy
 
 import requests
 from dotenv import load_dotenv
@@ -29,7 +30,7 @@ CONCLUSIVE_EVALUATIONS = {
     "EVIDENCIAS_SUFICIENTES_FAVORAVEIS",
     "EVIDENCIAS_SUFICIENTES_CONTRARIAS",
 }
-RESPONSE_VERSION = "analise-evidencias-v1"
+RESPONSE_VERSION = "analise-evidencias-v2"
 
 ANSWER_SCHEMA = {
     "type": "object",
@@ -67,6 +68,7 @@ def ask(
     track: bool = True,
     model_name: str | None = None,
     tracking_context: dict | None = None,
+    generation_diagnostics: dict | None = None,
 ) -> dict:
     started = time.perf_counter()
     load_dotenv(ROOT / ".env")
@@ -79,10 +81,13 @@ def ask(
         teaching = store.search(question, "educativo", limit=3, max_per_source=2)
     retrieval_s = time.perf_counter() - retrieval_started
     items = []
+    evidence_items = []
+    teaching_items = []
     for index, item in enumerate(evidence + teaching, 1):
         metadata = item["metadata"]
-        items.append({
+        normalized = {
             "numero": index,
+            "rotulo": f"{'E' if metadata['kind'] == 'evidencia' else 'M'}{index}",
             "tipo": metadata["kind"],
             "titulo": metadata["title"],
             "origem": metadata["source"],
@@ -92,23 +97,111 @@ def ask(
             "qualificada": metadata.get("conclusive_eligible", True),
             "trecho": item["text"],
             "distancia_vetorial": item.get("distance"),
-        })
-    prompt = json.dumps({"pergunta": question, "documentos": items,
-                         "publicacao_enviada": publication,
-                         "historico": (history or [])[-4:]}, ensure_ascii=False)
+        }
+        items.append(normalized)
+        (evidence_items if metadata["kind"] == "evidencia" else teaching_items).append(normalized)
+    prompt_data = {
+        "afirmacao_original": question,
+        "evidencias_factuais": evidence_items,
+        "materiais_educativos": teaching_items,
+        "publicacao_enviada": publication,
+        "historico": (history or [])[-4:],
+    }
+    prompt = json.dumps(prompt_data, ensure_ascii=False)
     generation_started = time.perf_counter()
+    attempts = []
+    validation_errors = []
     payload = ollama_json(SYSTEM_PROMPT, prompt, ANSWER_SCHEMA, model_name=model_name)
+    attempts.append(deepcopy(payload))
+    if isinstance(payload, dict):
+        payload["afirmacao"] = question.strip()
+    try:
+        answer = validate_answer(payload, items)
+        first_valid = True
+        repaired = False
+        fallback = False
+    except ValueError as error:
+        first_valid = False
+        validation_errors.append(str(error))
+        repair_prompt = json.dumps({
+            **prompt_data,
+            "resposta_rejeitada": attempts[-1],
+            "erro_de_validacao": str(error),
+            "instrucao_de_correcao": (
+                "Corrija somente o necessário. Em evidencias_favoraveis e "
+                "evidencias_contrarias use apenas documentos de evidencias_factuais. "
+                "Copie afirmacao_original exatamente no campo afirmacao."
+            ),
+        }, ensure_ascii=False)
+        try:
+            repaired_payload = ollama_json(
+                SYSTEM_PROMPT,
+                repair_prompt,
+                ANSWER_SCHEMA,
+                model_name=model_name,
+            )
+            attempts.append(deepcopy(repaired_payload))
+            if isinstance(repaired_payload, dict):
+                repaired_payload["afirmacao"] = question.strip()
+            answer = validate_answer(repaired_payload, items)
+            repaired = True
+            fallback = False
+        except ValueError as repair_error:
+            validation_errors.append(str(repair_error))
+            answer = safe_fallback(question, items)
+            repaired = False
+            fallback = True
     generation_s = time.perf_counter() - generation_started
-    answer = validate_answer(payload, items)
+    diagnostics = {
+        "tentativas_geracao": len(attempts),
+        "primeira_resposta_valida": first_valid,
+        "correcao_automatica_sucesso": repaired,
+        "fallback_seguro": fallback,
+        "afirmacao_original_preservada": answer["afirmacao"] == question.strip(),
+        "erros_validacao": validation_errors,
+    }
+    if generation_diagnostics is not None:
+        generation_diagnostics.clear()
+        generation_diagnostics.update(diagnostics)
     if track:
         tracking_context = dict(tracking_context or {"modo": "local"})
         tracking_context.setdefault("metricas_execucao", {}).update({
             "latencia_recuperacao_s": retrieval_s,
             "latencia_geracao_s": generation_s,
             "latencia_total_s": time.perf_counter() - started,
+            "tentativas_geracao": float(diagnostics["tentativas_geracao"]),
+            "primeira_resposta_valida": float(diagnostics["primeira_resposta_valida"]),
+            "correcao_automatica_sucesso": float(diagnostics["correcao_automatica_sucesso"]),
+            "fallback_seguro": float(diagnostics["fallback_seguro"]),
+            "afirmacao_original_preservada": float(diagnostics["afirmacao_original_preservada"]),
         })
-        _track_answer(question, items, payload, answer, tracking_context)
+        generation_trace = {
+            "tentativas": attempts,
+            "erros_validacao": validation_errors,
+            "resposta_final_foi_fallback": fallback,
+        }
+        _track_answer(question, items, generation_trace, answer, tracking_context)
     return answer
+
+
+def safe_fallback(question: str, items: list[dict]) -> dict:
+    """Produz uma resposta válida e conservadora após duas gerações rejeitadas."""
+    payload = {
+        "afirmacao": question.strip(),
+        "evidencias_favoraveis": [],
+        "evidencias_contrarias": [],
+        "contexto": "Não foi possível gerar uma análise que passasse pelas validações automáticas.",
+        "pontos_de_atencao": [
+            "A resposta automática foi descartada porque não respeitou as regras de uso das fontes."
+        ],
+        "avaliacao_evidencias": "EVIDENCIAS_INSUFICIENTES",
+        "limitacoes": (
+            "A análise requer nova tentativa ou revisão humana; nenhuma conclusão factual da "
+            "resposta rejeitada foi apresentada."
+        ),
+        "fontes_usadas": [],
+    }
+    return validate_answer(payload, items)
 
 
 def _track_answer(question: str, items: list[dict], payload: dict, answer: dict,

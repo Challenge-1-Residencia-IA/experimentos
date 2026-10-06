@@ -101,6 +101,15 @@ def summarize(details: list[dict], *, retrieval_only: bool = False) -> dict[str,
             ) / len(expected_abstention)
     if valid:
         metrics["taxa_com_limitacoes"] = sum(bool(item["resposta"]["limitacoes"].strip()) for item in valid) / len(valid)
+    generation = [item["diagnostico_geracao"] for item in valid if item.get("diagnostico_geracao")]
+    if generation:
+        metrics["tentativas_geracao_media"] = sum(item["tentativas_geracao"] for item in generation) / len(generation)
+        metrics["taxa_primeira_resposta_valida"] = sum(item["primeira_resposta_valida"] for item in generation) / len(generation)
+        metrics["taxa_correcao_automatica_sucesso"] = sum(item["correcao_automatica_sucesso"] for item in generation) / len(generation)
+        metrics["taxa_fallback_seguro"] = sum(item["fallback_seguro"] for item in generation) / len(generation)
+        metrics["taxa_afirmacao_original_preservada"] = sum(
+            item["afirmacao_original_preservada"] for item in generation
+        ) / len(generation)
     reserved = [item for item in valid if item.get("espera_sem_evidencia")]
     if reserved:
         metrics["casos_reservados_sem_evidencia"] = float(len(reserved))
@@ -162,6 +171,7 @@ def evaluate(
             start = time.perf_counter()
             item = {**case, "rank_url_esperada": None, "urls_recuperadas": [],
                     "grupos_recuperados": [], "avaliacao_evidencias": None, "resposta": None, "erro": None,
+                    "diagnostico_geracao": {},
                     "precision_at_k": 0.0, "recall_at_k": 0.0, "ndcg_at_k": 0.0}
             try:
                 evidence = store.search(case["pergunta"], "evidencia", limit=EVIDENCE_K, max_per_source=2)
@@ -183,7 +193,10 @@ def evaluate(
                 idcg = sum(1 / math.log2(rank + 1) for rank in range(1, ideal + 1))
                 item["ndcg_at_k"] = dcg / idcg if idcg else 0.0
                 if not retrieval_only:
-                    answer = ask(case["pergunta"], store, evidence=evidence, teaching=teaching, track=False)
+                    answer = ask(
+                        case["pergunta"], store, evidence=evidence, teaching=teaching, track=False,
+                        generation_diagnostics=item["diagnostico_geracao"],
+                    )
                     item["avaliacao_evidencias"] = answer["avaliacao_evidencias"]
                     item["resposta"] = answer
             except Exception as error:
