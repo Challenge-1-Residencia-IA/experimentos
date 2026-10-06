@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import unicodedata
 
 import requests
@@ -67,13 +68,16 @@ def ask(
     model_name: str | None = None,
     tracking_context: dict | None = None,
 ) -> dict:
+    started = time.perf_counter()
     load_dotenv(ROOT / ".env")
+    retrieval_started = time.perf_counter()
     if evidence is None or teaching is None:
         store = store or VectorStore()
     if evidence is None:
         evidence = store.search(question, "evidencia", limit=6, max_per_source=2)
     if teaching is None:
         teaching = store.search(question, "educativo", limit=3, max_per_source=2)
+    retrieval_s = time.perf_counter() - retrieval_started
     items = []
     for index, item in enumerate(evidence + teaching, 1):
         metadata = item["metadata"]
@@ -92,9 +96,17 @@ def ask(
     prompt = json.dumps({"pergunta": question, "documentos": items,
                          "publicacao_enviada": publication,
                          "historico": (history or [])[-4:]}, ensure_ascii=False)
+    generation_started = time.perf_counter()
     payload = ollama_json(SYSTEM_PROMPT, prompt, ANSWER_SCHEMA, model_name=model_name)
+    generation_s = time.perf_counter() - generation_started
     answer = validate_answer(payload, items)
     if track:
+        tracking_context = dict(tracking_context or {"modo": "local"})
+        tracking_context.setdefault("metricas_execucao", {}).update({
+            "latencia_recuperacao_s": retrieval_s,
+            "latencia_geracao_s": generation_s,
+            "latencia_total_s": time.perf_counter() - started,
+        })
         _track_answer(question, items, payload, answer, tracking_context)
     return answer
 
@@ -103,6 +115,7 @@ def _track_answer(question: str, items: list[dict], payload: dict, answer: dict,
                   tracking_context: dict | None = None) -> None:
     """Registra cada consulta e a especificação exata da resposta no MLflow."""
     import mlflow
+    from rag.metrics import answer_metrics
 
     configure_tracking()
     from rag.corpus import CORPUS
@@ -123,6 +136,7 @@ def _track_answer(question: str, items: list[dict], payload: dict, answer: dict,
         mlflow.log_dict({"pergunta": question, "documentos": items,
                          "contexto_execucao": tracking_context or {"modo": "local"},
                          "saida_modelo": payload, "resposta": answer}, "consulta/rastreio.json")
+        mlflow.log_metrics(answer_metrics(items, answer, tracking_context))
         mlflow.set_tag("avaliacao_evidencias", answer["avaliacao_evidencias"])
         if registered_version:
             mlflow.set_tags({"registered_model_name": REGISTERED_MODEL_NAME,
@@ -231,11 +245,13 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
         search_query = f"{previous} {claim}"[:300] if previous else claim
     else:
         search_query = claim
+    research_started = time.perf_counter()
     pages, diagnostics = researcher.research(
         search_query,
         exclude_url=publication["url"] if publication else None,
         exclude_group=page["origin_group"] if publication else None,
     )
+    research_s = time.perf_counter() - research_started
     store = store or VectorStore()
     evidence = passages(claim, pages, store.encoder)
     web_groups = {item["metadata"]["origin_group"] for item in evidence}
@@ -247,7 +263,10 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
                  history=history, publication=publication, track=track,
                  model_name=model_name,
                  tracking_context={"modo": "web", "pesquisa_web": diagnostics,
-                                   "publicacao_enviada": publication})
+                                   "publicacao_enviada": publication,
+                                   "metricas_execucao": {
+                                       "latencia_pesquisa_web_s": research_s,
+                                   }})
     answer["alegacao_verificada"] = claim
     answer["fonte_enviada"] = publication
     answer["pesquisa_web"] = diagnostics

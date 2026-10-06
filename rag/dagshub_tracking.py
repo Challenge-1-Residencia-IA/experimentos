@@ -100,6 +100,8 @@ def tracked_registered_prediction(
 ) -> tuple[str, str]:
     """Executa uma versão registrada e salva toda tentativa no MLflow padrão."""
     configure_tracking()
+    from rag.metrics import answer_metrics
+
     started = time.perf_counter()
     with mlflow.start_run(run_name="consulta-modelo-registrado") as run:
         mlflow.log_params({
@@ -120,6 +122,9 @@ def tracked_registered_prediction(
             raise
         mlflow.log_metric("latencia_s", time.perf_counter() - started)
         mlflow.log_dict(answer, "consulta/resposta.json")
+        mlflow.log_metrics(answer_metrics(
+            answer.get("fontes", []), answer, {"modo": mode}
+        ))
         mlflow.set_tags({
             "resultado": "sucesso",
             "avaliacao_evidencias": str(answer.get("avaliacao_evidencias", "ausente")),

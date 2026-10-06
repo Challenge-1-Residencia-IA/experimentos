@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import subprocess
 import time
@@ -61,6 +62,8 @@ def summarize(details: list[dict]) -> dict[str, float]:
     metrics = {
         "casos": float(total),
         "respostas_validas": float(len(valid)),
+        "casos_com_erro": float(total - len(valid)),
+        "taxa_erros": (total - len(valid)) / total,
         "taxa_respostas_validas": len(valid) / total,
         "latencia_media_s": sum(item["latencia_s"] for item in details) / total,
     }
@@ -70,15 +73,36 @@ def summarize(details: list[dict]) -> dict[str, float]:
             sum(source["tipo"] == "evidencia" for source in item["resposta"]["fontes"])
             for item in valid
         ) / len(valid)
+        metrics["fontes_independentes_citadas_media"] = sum(
+            len({source["grupo_origem"] for source in item["resposta"]["fontes"]
+                 if source["tipo"] == "evidencia"}) for item in valid
+        ) / len(valid)
+        metrics["taxa_citacoes_validas"] = 1.0
+        for evaluation in sorted(EVALUATIONS):
+            count = sum(item["avaliacao_evidencias"] == evaluation for item in valid)
+            key = evaluation.casefold()
+            metrics[f"avaliacoes_{key}"] = float(count)
+            metrics[f"taxa_{key}"] = count / len(valid)
     if labeled:
         metrics["casos_com_avaliacao_revisada"] = float(len(labeled))
         metrics["concordancia_avaliacao"] = sum(item["avaliacao_evidencias"] == item["avaliacao_revisada"] for item in labeled) / len(labeled)
+        expected_abstention = [item for item in labeled if item["avaliacao_revisada"] in {
+            "EVIDENCIAS_INSUFICIENTES", "EVIDENCIAS_CONFLITANTES"}]
+        if expected_abstention:
+            metrics["taxa_abstencao_correta"] = sum(
+                item["avaliacao_evidencias"] == item["avaliacao_revisada"]
+                for item in expected_abstention
+            ) / len(expected_abstention)
     if valid:
         metrics["taxa_com_limitacoes"] = sum(bool(item["resposta"]["limitacoes"].strip()) for item in valid) / len(valid)
     if retrieval:
         metrics[f"hit_at_{EVIDENCE_K}"] = sum(item["rank_url_esperada"] is not None for item in retrieval) / len(retrieval)
         metrics["mrr"] = sum(1 / item["rank_url_esperada"] for item in retrieval if item["rank_url_esperada"] is not None) / len(retrieval)
         metrics["casos_com_urls_esperadas"] = float(len(retrieval))
+        metrics[f"precision_at_{EVIDENCE_K}"] = sum(item["precision_at_k"] for item in retrieval) / len(retrieval)
+        metrics[f"recall_at_{EVIDENCE_K}"] = sum(item["recall_at_k"] for item in retrieval) / len(retrieval)
+        metrics[f"ndcg_at_{EVIDENCE_K}"] = sum(item["ndcg_at_k"] for item in retrieval) / len(retrieval)
+        metrics[f"taxa_documentos_irrelevantes_at_{EVIDENCE_K}"] = 1 - metrics[f"precision_at_{EVIDENCE_K}"]
     return metrics
 
 
@@ -122,7 +146,8 @@ def evaluate(
         for case in cases:
             start = time.perf_counter()
             item = {**case, "rank_url_esperada": None, "urls_recuperadas": [],
-                    "grupos_recuperados": [], "avaliacao_evidencias": None, "resposta": None, "erro": None}
+                    "grupos_recuperados": [], "avaliacao_evidencias": None, "resposta": None, "erro": None,
+                    "precision_at_k": 0.0, "recall_at_k": 0.0, "ndcg_at_k": 0.0}
             try:
                 evidence = store.search(case["pergunta"], "evidencia", limit=EVIDENCE_K, max_per_source=2)
                 teaching = store.search(case["pergunta"], "educativo", limit=3, max_per_source=2)
@@ -132,6 +157,16 @@ def evaluate(
                 item["rank_url_esperada"] = next(
                     (rank for rank, url in enumerate(item["urls_recuperadas"], 1) if url in expected), None
                 )
+                relevant_positions = [
+                    rank for rank, url in enumerate(item["urls_recuperadas"], 1) if url in expected
+                ]
+                relevant_urls = set(item["urls_recuperadas"]) & expected
+                item["precision_at_k"] = len(relevant_positions) / len(item["urls_recuperadas"]) if item["urls_recuperadas"] else 0.0
+                item["recall_at_k"] = len(relevant_urls) / len(expected) if expected else 0.0
+                dcg = sum(1 / math.log2(rank + 1) for rank in relevant_positions)
+                ideal = min(len(expected), len(item["urls_recuperadas"]))
+                idcg = sum(1 / math.log2(rank + 1) for rank in range(1, ideal + 1))
+                item["ndcg_at_k"] = dcg / idcg if idcg else 0.0
                 answer = ask(case["pergunta"], store, evidence=evidence, teaching=teaching, track=False)
                 item["avaliacao_evidencias"] = answer["avaliacao_evidencias"]
                 item["resposta"] = answer

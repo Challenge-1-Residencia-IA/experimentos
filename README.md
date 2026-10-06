@@ -52,6 +52,7 @@ python -m scripts.perguntar_rag "Como posso verificar uma notícia?"
 python -m scripts.perguntar_rag "É verdade que ...?"
 python -m scripts.perguntar_rag "https://exemplo.org/noticia"
 python -m scripts.avaliar_rag_mlflow docs/casos_avaliacao_exemplo.jsonl
+python -m scripts.recalcular_metricas_mlflow
 python -m scripts.publicar_dataset_rag_mlflow
 python -m scripts.testar_modelo_dagshub "É verdade que ...?" --version 1 --modo web
 python -m scripts.testar_benchmark_averitec --per-class 10
@@ -72,6 +73,13 @@ métricas de avaliação das evidências e recuperação exigem casos revisados 
 evidências indexadas.
 O benchmark AVeriTeC usa dados e índice separados da base principal; veja
 [docs/RAG_TUTORA.md](docs/RAG_TUTORA.md) para o protocolo e as limitações.
+
+Consultas individuais registram métricas numéricas de recuperação, citações,
+diversidade de fontes, distâncias vetoriais, categoria da avaliação, limitações
+e latência. Avaliações com gabarito também calculam Precision@6, Recall@6,
+Hit@6, MRR, NDCG@6, concordância e abstenção correta. O comando
+`scripts.recalcular_metricas_mlflow` preenche as métricas possíveis em runs
+antigos a partir dos artefatos já salvos.
 
 O guia completo de fontes, formatos, atualização incremental e avaliação está
 em [docs/RAG_TUTORA.md](docs/RAG_TUTORA.md). Dados e índice vetorial são
