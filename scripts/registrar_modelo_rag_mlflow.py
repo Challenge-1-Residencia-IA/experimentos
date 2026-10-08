@@ -113,7 +113,7 @@ def main() -> None:
             artifact_path="modelo_rag",
             python_model=RAGModel(qwen, digest, MODEL, revision),
             artifacts=artifacts,
-            code_paths=[str(ROOT / "rag"), str(ROOT / "prompts")],
+            code_paths=[str(ROOT / "rag"), str(ROOT / "guardrails"), str(ROOT / "prompts")],
             pip_requirements=requirements,
             metadata=manifest,
         )

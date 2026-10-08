@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 
+from guardrails import responder_com_guardrails
 from rag.tutor import ask, ask_online
 from rag.web import WebResearcher
 
@@ -22,7 +23,10 @@ def main() -> None:
         os.environ["MLFLOW_TRACKING_URI"] = f"sqlite:///{base / 'mlflow.db'}"
         os.environ["MLFLOW_LOCAL_ARTIFACT_ROOT"] = str(base / "artifacts")
         os.environ["MLFLOW_EXPERIMENT_NAME"] = "NexoVerdict-Temporario"
-    answer = ask(args.pergunta) if args.local else ask_online(args.pergunta, WebResearcher())
+    if args.local:
+        answer = responder_com_guardrails(ask, args.pergunta)
+    else:
+        answer = responder_com_guardrails(ask_online, args.pergunta, WebResearcher())
     print(json.dumps(answer, ensure_ascii=False, indent=2))
 
 

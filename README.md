@@ -31,6 +31,7 @@ consulta.
 - [MLflow local](#mlflow-local)
 - [Métricas](#métricas)
 - [DagsHub e versionamento compartilhado](#dagshub-e-versionamento-compartilhado)
+- [Guardrails](#guardrails)
 - [Dados versionados com DVC](#dados-versionados-com-dvc)
 - [O que pode ser commitado](#o-que-pode-ser-commitado)
 - [Estrutura do repositório](#estrutura-do-repositório)
@@ -826,6 +827,23 @@ python -m scripts.testar_modelo_dagshub \
   --version 1 \
   --modo local
 ```
+
+## Guardrails
+
+O pacote `guardrails/` protege a tutora em três camadas. Os pontos de entrada (menu,
+`scripts.perguntar_rag` e o modelo registrado no MLflow) chamam a tutora por
+`responder_com_guardrails(ask_online, mensagem, ...)`.
+
+| Camada | Arquivo | O que faz | Requisitos |
+|---|---|---|---|
+| Entrada | `guardrails/entrada.py` | Remove caracteres invisíveis; responde na hora, sem busca nem modelo, a mensagens vazias, saudações, pedidos fora do escopo (criar código, textos, traduções, dúvidas gerais) e instruções ao assistente (prompt injection); encurta mensagens acima de `TAMANHO_MAXIMO` e avisa o usuário | RNF-02, GR-03, IA-01 |
+| Blindagem | `guardrails/blindagem.py` | Antes de ir ao prompt, cada título e trecho de fonte (web ou base) perde marcações de papel de chat e frases que tentam instruir o modelo | GR-03 |
+| Saída | `guardrails/saida.py` | Remove dos textos gerados frases com veredito de verdadeiro/falso ou que julgam o usuário (citações entre aspas são preservadas); acrescenta aviso e fontes oficiais em temas de risco (saúde, eleição, golpe, segurança) | GR-01, GR-04, GR-06 |
+
+Cada resposta traz o campo `guardrails`, com o que foi recusado, removido ou acrescentado.
+Os padrões ficam em `guardrails/padroes.py` e são heurísticas por expressões regulares,
+aplicadas sobre o texto sem acento e em minúsculas. Os testes (`tests/test_guardrails.py`)
+incluem casos adversariais e casos legítimos que não podem ser bloqueados.
 
 ## Dados versionados com DVC
 

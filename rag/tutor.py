@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from rag.corpus import ROOT
 from rag.dagshub_tracking import REGISTERED_MODEL_NAME, configure_tracking, contract_fingerprint, git_revision, matching_model_version
 from rag.relevance import relevance
+from guardrails.blindagem import blindar_trecho
 from rag.store import VectorStore
 from rag.web import repair_mojibake
 
@@ -144,16 +145,19 @@ def ask(
         items.append(normalized)
         (evidence_items if metadata["kind"] == "evidencia" else teaching_items).append(normalized)
     direct_items = [item for item in evidence_items if item["relevancia"] == "direta"][:4]
+    shielded = {item["numero"]: (blindar_trecho(item["titulo"])[0], *blindar_trecho(item["trecho"]))
+                for item in direct_items + teaching_items[:1]}
     prompt_data = {
         "afirmacao_original": question,
         "evidencias_factuais": [
             {key: item[key] for key in (
-                "numero", "rotulo", "titulo", "origem", "grupo_origem", "url", "data", "qualificada"
-            )} | {"trecho": item["trecho"][:1100]} for item in direct_items
+                "numero", "rotulo", "origem", "grupo_origem", "url", "data", "qualificada"
+            )} | {"titulo": shielded[item["numero"]][0], "trecho": shielded[item["numero"]][1][:1100]}
+            for item in direct_items
         ],
         "materiais_educativos": [
             {"numero": item["numero"], "rotulo": item["rotulo"],
-             "titulo": item["titulo"], "trecho": item["trecho"][:700]}
+             "titulo": shielded[item["numero"]][0], "trecho": shielded[item["numero"]][1][:700]}
             for item in teaching_items[:1]
         ],
         "publicacao_enviada": publication,
@@ -192,6 +196,7 @@ def ask(
         "fallback_seguro": fallback,
         "afirmacao_original_preservada": answer["afirmacao"] == question.strip(),
         "erros_validacao": validation_errors,
+        "instrucoes_removidas_das_fontes": sum(removed for _, _, removed in shielded.values()),
     }
     if generation_diagnostics is not None:
         generation_diagnostics.clear()

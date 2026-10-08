@@ -51,6 +51,7 @@ class RAGModel(mlflow.pyfunc.PythonModel):
         )
 
     def predict(self, context, model_input, params=None):
+        from guardrails import responder_com_guardrails
         from rag.tutor import ask, ask_online
         from rag.web import WebResearcher
 
@@ -76,10 +77,10 @@ class RAGModel(mlflow.pyfunc.PythonModel):
         answers = []
         for question, mode in zip(questions, modes):
             if mode == "web":
-                answer = ask_online(question, researcher, store=self.store, track=False,
-                                    model_name=self.ollama_model)
+                answer = responder_com_guardrails(ask_online, question, researcher, store=self.store,
+                                                  track=False, model_name=self.ollama_model)
             else:
-                answer = ask(question, store=self.store, track=False,
-                             model_name=self.ollama_model)
+                answer = responder_com_guardrails(ask, question, store=self.store, track=False,
+                                                  model_name=self.ollama_model)
             answers.append(json.dumps(answer, ensure_ascii=False))
         return answers
