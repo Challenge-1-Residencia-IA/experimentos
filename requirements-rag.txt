@@ -1,0 +1,11 @@
+beautifulsoup4
+chromadb
+ddgs
+feedparser
+mlflow
+pypdf
+python-dotenv
+requests
+rich
+sentence-transformers
+trafilatura

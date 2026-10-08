@@ -1,0 +1,19 @@
+{
+  "documents": [
+    {
+      "path": "knowledge/leitura_lateral.md",
+      "kind": "educativo",
+      "source": "NexoVerdict",
+      "origin_group": "nexoverdict",
+      "license": "conteúdo próprio"
+    },
+    {
+      "path": "knowledge/evidencias_e_contexto.md",
+      "kind": "educativo",
+      "source": "NexoVerdict",
+      "origin_group": "nexoverdict",
+      "license": "conteúdo próprio"
+    }
+  ],
+  "feeds": []
+}
