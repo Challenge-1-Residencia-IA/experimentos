@@ -34,8 +34,17 @@ htmlcov/
 .ipynb_checkpoints/
 
 # Dados locais e fontes brutas
-data/
-raw/
+# Dados: o conteúdo é versionado pelo DVC (remote no DagsHub); o git guarda só os .dvc,
+# os .gitkeep e os .gitignore gerados pelo DVC.
+data/*
+!data/raw/
+!data/interim/
+!data/processed/
+data/*/*
+!data/*/.gitkeep
+!data/*/.gitignore
+!data/raw/*.dvc
+/raw/
 datasets/
 *.csv
 *.tsv

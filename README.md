@@ -31,6 +31,7 @@ consulta.
 - [MLflow local](#mlflow-local)
 - [Métricas](#métricas)
 - [DagsHub e versionamento compartilhado](#dagshub-e-versionamento-compartilhado)
+- [Dados versionados com DVC](#dados-versionados-com-dvc)
 - [O que pode ser commitado](#o-que-pode-ser-commitado)
 - [Estrutura do repositório](#estrutura-do-repositório)
 - [Testes](#testes)
@@ -247,13 +248,15 @@ data/raw/Fake.br-Corpus/
 data/raw/FakeTrue.Br/FakeTrueBr_corpus.csv
 ```
 
-Os dados brutos não estão no Git. Cada integrante deve obtê-los pelas fontes
-autorizadas e respeitar as licenças e condições de uso.
+Os dados brutos não estão no Git: são versionados com DVC no armazenamento do
+DagsHub (ver [Dados versionados com DVC](#dados-versionados-com-dvc)). Baixe-os
+com `dvc pull`. O uso deve respeitar as licenças e condições de cada dataset.
 
-Prepare as visões intermediárias:
+Prepare as visões intermediárias com o pipeline do DVC, que executa só as etapas
+cujas entradas mudaram:
 
 ```bash
-python -m dados.preparar
+dvc repro
 ```
 
 Esse comando gera:
@@ -820,6 +823,47 @@ python -m scripts.testar_modelo_dagshub \
   --version 1 \
   --modo local
 ```
+
+## Dados versionados com DVC
+
+Os datasets, a planilha de anotação do golden set e os arquivos derivados são
+versionados com [DVC](https://dvc.org). O Git guarda apenas os ponteiros
+(`data/raw/*.dvc`, `dvc.yaml`, `dvc.lock`); o conteúdo fica no armazenamento DVC do
+repositório `FilipeLacerda738/experimentos` no DagsHub.
+
+| Arquivo | Papel |
+|---|---|
+| `data/raw/Fake.br-Corpus.dvc`, `data/raw/FakeTrue.Br.dvc` | Versão dos datasets brutos |
+| `data/raw/golden_set.dvc` | Versão da planilha de anotação do golden set |
+| `dvc.yaml` | Pipeline: `preparar` (`dados.preparar`) e `golden_set` (`dados.golden_set`) |
+| `dvc.lock` | Hashes exatos das entradas e saídas da última execução |
+
+### Configurar o acesso (uma vez por máquina)
+
+O remote já está em `.dvc/config`. As credenciais ficam em `.dvc/config.local`,
+que não é versionado. Use o usuário e um token de acesso do DagsHub (Settings →
+Tokens), com permissão no repositório:
+
+```bash
+dvc remote modify dagshub --local user SEU_USUARIO_DAGSHUB
+dvc remote modify dagshub --local password SEU_TOKEN_DAGSHUB
+```
+
+### Uso diário
+
+```bash
+dvc pull            # baixa os dados da versão do commit atual
+dvc repro           # reexecuta as etapas cujas entradas mudaram
+dvc push            # envia dados novos para o DagsHub
+```
+
+Para atualizar a planilha do golden set: substitua
+`data/raw/golden_set/golden_set_v1_anotacao.xlsx`, rode `dvc add data/raw/golden_set`,
+`dvc repro` e `dvc push`, e faça commit de `data/raw/golden_set.dvc`, `dvc.lock` e
+dos relatórios em `reports/`. Cada commit passa a apontar para a versão exata dos
+dados que o produziu.
+
+No plano gratuito do DagsHub, projetos privados aceitam até 2 colaboradores.
 
 ## O que pode ser commitado
 

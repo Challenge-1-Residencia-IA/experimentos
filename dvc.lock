@@ -1,0 +1,93 @@
+schema: '2.0'
+stages:
+  preparar:
+    cmd: python -m dados.preparar
+    deps:
+    - path: dados/__init__.py
+      hash: md5
+      md5: fbfe3b8f87e447ef50c877194bd87029
+      size: 379
+    - path: dados/caminhos.py
+      hash: md5
+      md5: 5df5e875182a7f92bfde6de7d13beeef
+      size: 295
+    - path: dados/carregar.py
+      hash: md5
+      md5: b4bdf6ef37dcc530b252464c3d03aaa4
+      size: 4650
+    - path: dados/preparar.py
+      hash: md5
+      md5: 75f33054fa06ec9e232a25ddcb6f53f5
+      size: 10403
+    - path: dados/texto.py
+      hash: md5
+      md5: 9fbf045896fcf85a8dbe590045075ff9
+      size: 6742
+    - path: data/raw/Fake.br-Corpus
+      hash: md5
+      md5: deb908eb98d30d809f7374f2d2336935.dir
+      size: 59684799
+      nfiles: 21602
+    - path: data/raw/FakeTrue.Br
+      hash: md5
+      md5: a695125609a68506daf6d1bc4f0142c1.dir
+      size: 7742720
+      nfiles: 2
+    outs:
+    - path: data/interim/boilerplate.json
+      hash: md5
+      md5: e7bf83b7d1901737fdf1e93bcd4f955d
+      size: 4221
+    - path: data/interim/textos.parquet
+      hash: md5
+      md5: 0929b39b52095c237d83bc8f565aa6bc
+      size: 62977567
+    - path: data/processed/avaliacao_busca.parquet
+      hash: md5
+      md5: 488331f66830c6c09bb00e2878fb6712
+      size: 1173252
+    - path: data/processed/base_checagens.parquet
+      hash: md5
+      md5: 3aaecd634442bd104d8eb008c23c6ed8
+      size: 2140724
+    - path: data/processed/fewshot_candidatos.parquet
+      hash: md5
+      md5: 6f282f5f9ccdda1ffd086189e832780e
+      size: 2778353
+    - path: data/processed/golden_set_candidatos.parquet
+      hash: md5
+      md5: 750c60666b5c9d986bf5d3be49310b1c
+      size: 73808
+    - path: reports/preparacao-dados.md
+      hash: md5
+      md5: 0c1f02fbeccbe5356c4297e572180149
+      size: 2396
+  golden_set:
+    cmd: python -m dados.golden_set
+    deps:
+    - path: dados/__init__.py
+      hash: md5
+      md5: fbfe3b8f87e447ef50c877194bd87029
+      size: 379
+    - path: dados/caminhos.py
+      hash: md5
+      md5: 5df5e875182a7f92bfde6de7d13beeef
+      size: 295
+    - path: dados/golden_set.py
+      hash: md5
+      md5: c43c93e07aa2a4fe633145297c1dcd70
+      size: 9843
+    - path: data/raw/golden_set
+      hash: md5
+      md5: 0bc8156fe932269fcfc157db940a1236.dir
+      size: 53561
+      nfiles: 1
+    outs:
+    - path: data/processed/golden_set_v1.jsonl
+      hash: md5
+      md5: 503ca7229a5dcf10608e667fe20ba706
+      size: 106668
+    - path: reports/golden-set-v1.md
+      hash: md5
+      md5: 35f7ea924856cd06f68e6c736554f9d1
+      size: 2803

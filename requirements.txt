@@ -16,3 +16,4 @@ tabulate
 -e .
 rich
 seaborn
+dvc

@@ -1,0 +1,6 @@
+outs:
+- md5: deb908eb98d30d809f7374f2d2336935.dir
+  size: 59684799
+  nfiles: 21602
+  hash: md5
+  path: Fake.br-Corpus
