@@ -118,7 +118,8 @@ não são copiados; a versão registra seu nome e digest para conferência.
 
 - macOS ou Linux;
 - Git;
-- Python 3.11 ou 3.12;
+- Python 3.11 a 3.13 (recomendado: 3.12, indicado em `.python-version`). O Python 3.14
+  ainda não é suportado por bibliotecas usadas no projeto, como o NeMo Guardrails;
 - [Ollama](https://ollama.com/) instalado;
 - espaço em disco para Qwen, embeddings, corpus e índice;
 - internet para instalação, download, modo web e DagsHub.
@@ -133,19 +134,21 @@ estiverem disponíveis na máquina.
 ```bash
 git clone https://github.com/Challenge-1-Residencia-IA/experimentos.git
 cd experimentos
-git checkout feat/rag
 ```
 
 ### 2. Criar e ativar o ambiente virtual
 
 ```bash
-python3.11 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
+python --version   # deve mostrar 3.11, 3.12 ou 3.13
 python -m pip install --upgrade pip
 ```
 
-Se `python3.11` não existir, use `python3` e confirme a versão com
-`python --version`.
+Não use o `python3` do sistema sem conferir a versão: em distribuições recentes ele já é
+o 3.14. Se `python3.12` não existir, instale o interpretador com `uv python install 3.12`
+(e crie o ambiente com o caminho mostrado por `uv python find 3.12`) ou com `pyenv`; o
+ambiente continua sendo um `venv` comum.
 
 ### 3. Instalar as dependências do RAG
 
