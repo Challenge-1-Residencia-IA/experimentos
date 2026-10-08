@@ -142,7 +142,10 @@ O contrato `analise-evidencias-v5` ordena primeiro as fontes cujo título ou
 uma frase do trecho contém os elementos da alegação. Apenas essas fontes
 diretas entram no contexto factual enviado ao Qwen. As relacionadas continuam
 na lista de URLs mostradas ao usuário; as não relacionadas ficam somente no
-rastreio técnico como descartadas.
+rastreio técnico como descartadas quando há fontes pertinentes. Se nenhuma
+fonte pertinente for encontrada, a resposta explica que as páginas lidas não
+respondem à alegação e mostra seus links separadamente, identificados como
+consultados sobre outros assuntos, nunca como prova a favor ou contra.
 O Qwen retorna trechos literais com uma citação cada. O código descarta a
 saída se a alegação mudar ou se um trecho não existir na fonte. Contexto,
 limitações e veredito são gerados pelo código. O tempo total registrado no

@@ -306,6 +306,49 @@ def test_sem_fonte_direta_nao_chama_modelo_mas_mostra_url(monkeypatch):
     assert answer["fontes_encontradas"][0]["url"] == "https://example.org/relacionada"
 
 
+def test_so_paginas_nao_relacionadas_explicam_limite_e_preservam_links(monkeypatch):
+    from io import StringIO
+
+    from rich.console import Console
+
+    import main
+
+    pages = []
+    for index, title in enumerate(("Bandeira em evento", "Votos em campanha",
+                                   "Vídeo atribuído a político", "Desmentido de vídeo"), 1):
+        page = hit("evidencia", f"https://example.org/pagina-{index}")
+        page["metadata"].update(title=title, relevancia="nao_relacionada")
+        pages.append(page)
+    monkeypatch.setattr(tutor, "ollama_json", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("O modelo não deveria ser chamado")))
+    diagnostics = {}
+    answer = tutor.ask("É verdade que um político ameaçou eleitores?", evidence=pages,
+                       teaching=[], track=False, generation_diagnostics=diagnostics)
+
+    assert diagnostics["tentativas_geracao"] == 0
+    assert answer["veredito"].startswith("Não encontramos fontes que tratem desta alegação específica")
+    assert "Consultamos 4 páginas" in answer["contexto"]
+    assert "não prova que a alegação seja verdadeira ou falsa" in answer["limitacoes"]
+    assert answer["fontes_encontradas"] == answer["fontes_usadas"] == []
+    assert len(answer["fontes_descartadas"]) == 4
+
+    output = StringIO()
+    monkeypatch.setattr(main, "console", Console(file=output, force_terminal=False, width=120))
+    main.render_answer(answer)
+    displayed = output.getvalue()
+    assert "não são prova a favor nem contra" in displayed
+    for page in pages:
+        assert page["metadata"]["url"] in displayed
+
+
+def test_nenhuma_pagina_recuperada_nao_afirma_que_alegacao_e_falsa():
+    answer = tutor.ask("Alegação sem resultado", evidence=[], teaching=[], track=False)
+
+    assert "Não encontramos fontes" in answer["veredito"]
+    assert "Não conseguimos recuperar páginas" in answer["contexto"]
+    assert answer["fontes_descartadas"] == []
+
+
 def test_latencia_total_inclui_pesquisa_web(monkeypatch):
     from rag import web
 

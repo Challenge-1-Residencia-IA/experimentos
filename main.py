@@ -202,6 +202,15 @@ def render_answer(answer: dict) -> None:
                            "nao_relacionada": "Outra"}.get(source.get("relevancia"), "—"),
                           source["origem"], source["titulo"], source["url"])
         console.print(table)
+    if not found and answer.get("fontes_descartadas"):
+        console.print("[yellow]As páginas abaixo foram consultadas, mas não respondem à alegação; não são prova a favor nem contra.[/yellow]")
+        table = Table(title="Páginas consultadas sobre outros assuntos", show_lines=True)
+        table.add_column("Origem")
+        table.add_column("Título")
+        table.add_column("URL", overflow="fold")
+        for source in answer["fontes_descartadas"]:
+            table.add_row(source["origem"], source["titulo"], source["url"])
+        console.print(table)
     console.print(Text(answer["limite_da_validacao"], style="dim"))
     research = answer.get("pesquisa_web")
     if research is not None:
@@ -210,7 +219,11 @@ def render_answer(answer: dict) -> None:
                       f"{research.get('fontes_qualificadas', 0)} fontes qualificadas; "
                       f"{research.get('evidencias_locais', 0)} evidências locais.[/dim]")
         if research.get("erro_busca"):
-            console.print(f"[yellow]Busca indisponível: {research['erro_busca']}[/yellow]")
+            error = research["erro_busca"]
+            if "No results found" in error:
+                console.print("[yellow]A busca complementar não trouxe resultados.[/yellow]")
+            else:
+                console.print(f"[yellow]Busca indisponível: {error}[/yellow]")
         if research.get("paginas_ignoradas"):
             console.print(f"[dim]{len(research['paginas_ignoradas'])} páginas não puderam ser lidas.[/dim]")
 

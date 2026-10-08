@@ -238,6 +238,7 @@ def safe_fallback(question: str, items: list[dict]) -> dict:
 
 def _safe_explanation(items: list[dict]) -> dict:
     """Texto baseado somente na contagem e na classificação das fontes."""
+    factual = [item for item in items if item["tipo"] == "evidencia"]
     direct = [item for item in items if item["tipo"] == "evidencia"
               and item.get("relevancia", "direta") == "direta"]
     found = [item for item in items if item["tipo"] == "evidencia"
@@ -245,22 +246,39 @@ def _safe_explanation(items: list[dict]) -> dict:
     qualified_groups = {canonical_origin_group(item["grupo_origem"])
                         for item in direct if item["qualificada"]}
     direct_verb = "tem" if len(direct) == 1 else "têm"
-    return {
-        "contexto": (
+    if found:
+        context = (
             f"Foram encontradas {len(found)} fontes; {len(direct)} {direct_verb} "
             "correspondência direta no título com os elementos da alegação. Os trechos abaixo "
             "são excertos dessas páginas, não uma confirmação independente."
-            if found else "A busca não recuperou fontes factuais sobre a alegação."
-        ),
-        "pontos_de_atencao": [
+        )
+        attention = [
             "A correspondência do título com a pergunta não confirma, por si só, o conteúdo da página."
-        ] if direct else [],
-        "limitacoes": (
+        ] if direct else []
+        limitations = (
             f"Origens qualificadas com título diretamente alinhado: {len(qualified_groups)}. "
             "Duas origens independentes com trechos verificáveis no mesmo "
             "sentido são necessárias para uma conclusão. A classificação automática de "
             "relevância não substitui a conferência das páginas originais."
-        ),
+        )
+    else:
+        context = (
+            f"Consultamos {len(factual)} páginas, mas nenhuma tratava da alegação específica. "
+            "Elas abordam outros assuntos e não servem para confirmá-la nem refutá-la."
+            if factual else "Não conseguimos recuperar páginas factuais para analisar esta alegação nesta busca."
+        )
+        attention = [
+            "Os links consultados abaixo são mostrados por transparência, não como evidência a favor ou contra a alegação."
+        ] if factual else []
+        limitations = (
+            "Não encontrar uma fonte pertinente nesta busca não prova que a alegação seja "
+            "verdadeira ou falsa. Se você tiver o link, vídeo ou publicação original, envie-o "
+            "para uma verificação mais precisa."
+        )
+    return {
+        "contexto": context,
+        "pontos_de_atencao": attention,
+        "limitacoes": limitations,
     }
 
 
@@ -535,7 +553,7 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
     answer["alegacao_verificada"] = claim
     answer["fonte_enviada"] = publication
     answer["pesquisa_web"] = diagnostics
-    answer["fontes_consultadas"] = answer["fontes_encontradas"]
+    answer["fontes_consultadas"] = answer["fontes_encontradas"] + answer["fontes_descartadas"]
     if cache is not None:
         if len(cache) >= 128:
             cache.pop(next(iter(cache)))
@@ -615,7 +633,13 @@ def validate_answer(payload: dict, items: list[dict]) -> dict:
         for item in items
         if item["tipo"] == "evidencia" and item.get("relevancia") == "nao_relacionada"
     ]
-    payload["veredito"] = VERDICT_TEXTS[payload["avaliacao_evidencias"]]
+    if evaluation == "EVIDENCIAS_INSUFICIENTES" and not payload["fontes_encontradas"]:
+        payload["veredito"] = (
+            "Não encontramos fontes que tratem desta alegação específica nas buscas realizadas. "
+            "Por isso, não podemos confirmá-la nem refutá-la."
+        )
+    else:
+        payload["veredito"] = VERDICT_TEXTS[evaluation]
     payload["limite_da_validacao"] = (
         "A validação confere formato, referências e diversidade declarada de origens; "
         "o suporte factual das citações requer avaliação humana."
