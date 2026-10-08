@@ -21,8 +21,8 @@ stages:
       size: 10403
     - path: dados/texto.py
       hash: md5
-      md5: 9fbf045896fcf85a8dbe590045075ff9
-      size: 6742
+      md5: 71bf54d162cfdf1b341a02632d68209f
+      size: 6747
     - path: data/raw/Fake.br-Corpus
       hash: md5
       md5: deb908eb98d30d809f7374f2d2336935.dir
@@ -36,7 +36,7 @@ stages:
     outs:
     - path: data/interim/boilerplate.json
       hash: md5
-      md5: e7bf83b7d1901737fdf1e93bcd4f955d
+      md5: 863d970634b02efe3a3f4328cd3707c7
       size: 4221
     - path: data/interim/textos.parquet
       hash: md5
