@@ -45,14 +45,11 @@ dois guias próprios e não coleta sites externos. Para URLs e feeds remotos,
 confirme as condições de uso e defina `usage_approved: true`; sem isso o
 coletor recusa o download.
 
-O `sources.json` atual contém dois guias próprios e quatro fichas factuais
-locais baseadas em divulgações da Agência de Notícias IBGE. Cada ficha usa
-`path` para o texto indexado e `reference_url` para o link oficial mostrado
-na resposta. A [licença da Agência de Notícias
-IBGE](https://agenciadenoticias.ibge.gov.br/agencia-sala-de-imprensa/2080-agencia-de-noticias/an-artigos-diversos/9277-licenca.html)
-permite reprodução com atribuição. Os quatro documentos compartilham
-`origin_group: "ibge"`: são dados da mesma instituição, não confirmações
-independentes. Atualize as fichas quando os números ou períodos mudarem.
+O `sources.json` atual contém dois guias educativos próprios: um sobre leitura
+lateral e outro sobre alinhamento entre afirmação e evidência. Eles orientam o
+método, mas nunca contam como prova factual. Evidências locais ou feeds remotos
+devem ser incluídos explicitamente depois de revisar pertinência, origem e
+licença.
 
 ```json
 {
@@ -91,21 +88,19 @@ avaliação. Para incluir os guias educativos locais, use a opção 1 com
 `sources.json` e a opção 2 para indexar. A opção 3 já pode pesquisar na web
 com o índice vazio; ela abre uma conversa contínua até digitar `sair`.
 Ao abrir essa opção, o programa também coleta e indexa automaticamente as
-fontes de `sources.json` se passaram 24 horas desde a última atualização ou
-se a configuração mudou. Se a coleta falhar, a conversa continua com as
+fontes de `sources.json` se passaram 24 horas desde a última atualização, se
+a configuração mudou ou se o conteúdo de uma fonte local foi editado. Se a
+coleta falhar, a conversa continua com as
 fontes disponíveis e a próxima abertura tenta novamente. Essa atualização
 acontece enquanto o menu é usado; não há um serviço rodando com o programa
 fechado. O arquivo `data/rag_auto_refresh.json` guarda o horário da última
 atualização concluída. As opções 1 e 2 continuam disponíveis para uma
 atualização imediata.
 
-O `sources.json` inclui o [feed RSS da Agência de Notícias IBGE](https://agenciadenoticias.ibge.gov.br/agencia-rss),
-com até 10 publicações por atualização. A [licença da agência](https://agenciadenoticias.ibge.gov.br/agencia-sala-de-imprensa/2080-agencia-de-noticias/an-artigos-diversos/9277-licenca.html)
-permite reprodução com atribuição. Todos esses textos compartilham a mesma
-origem factual `ibge`, portanto não contam como confirmações independentes.
-Para incluir outros feeds, verifique antes as condições de acesso e uso.
-Atualizar o índice acrescenta conhecimento recuperável ao RAG; o Qwen não
-aprende novos pesos com essa operação.
+O arquivo atual não inclui feeds remotos. Para adicionar um, verifique antes as
+condições de acesso e uso e agrupe publicações da mesma origem factual sob o
+mesmo `origin_group`. Atualizar o índice acrescenta conhecimento recuperável ao
+RAG; o Qwen não aprende novos pesos com essa operação.
 
 ### Pesquisa na web e links
 
@@ -138,10 +133,23 @@ páginas lidas com evidências pertinentes do índice local. Materiais educativo
 continuam separados das evidências factuais. O resultado mostra quantas
 páginas foram lidas, quantas origens web qualificadas foram encontradas e
 quantas evidências locais entraram na análise. Se o veredito for
-`INCONCLUSIVA`, a tela informa se faltaram fontes ou se os trechos não
+`EVIDENCIAS_INSUFICIENTES`, a tela informa se faltaram fontes ou se os trechos não
 sustentaram uma conclusão. O domínio de uma fonte é apenas uma triagem:
 duas páginas que repetem a mesma apuração não devem contar como confirmação
 independente, mesmo quando aparecem em veículos diferentes.
+
+O contrato `analise-evidencias-v5` ordena primeiro as fontes cujo título ou
+uma frase do trecho contém os elementos da alegação. Apenas essas fontes
+diretas entram no contexto factual enviado ao Qwen. As relacionadas continuam
+na lista de URLs mostradas ao usuário; as não relacionadas ficam somente no
+rastreio técnico como descartadas.
+O Qwen retorna trechos literais com uma citação cada. O código descarta a
+saída se a alegação mudar ou se um trecho não existir na fonte. Contexto,
+limitações e veredito são gerados pelo código. O tempo total registrado no
+MLflow inclui a pesquisa web, a seleção de trechos e a geração.
+Perguntas idênticas com o mesmo histórico recente reutilizam a resposta por
+até 10 minutos durante a mesma conversa; o acerto de cache é registrado no
+MLflow. A busca e as páginas também ficam em cache durante a sessão.
 
 Use, por exemplo:
 
@@ -154,7 +162,8 @@ python -m scripts.perguntar_rag "https://exemplo.org/noticia"
 Buscadores e publicadores externos podem limitar requisições, bloquear
 leitura automática ou exigir JavaScript. O programa não oferece garantia de
 busca ilimitada. Quando não obtém evidência suficiente, responde
-`INCONCLUSIVA` e mostra o limite da consulta. Antes de usar vereditos como
+`EVIDENCIAS_INSUFICIENTES`, mostra o limite da consulta e mantém visíveis as
+fontes encontradas que não foram usadas como prova. Antes de usar vereditos como
 produto público, revise manualmente pertinência dos trechos, independência
 factual das fontes e datas das publicações.
 
@@ -177,10 +186,12 @@ removidos do arquivo de fontes. Para retirar uma fonte, remova a linha
 correspondente de `data/documents.jsonl` e execute a indexação novamente;
 os trechos ausentes do corpus serão eliminados do índice.
 
-Uma conclusão `VERDADEIRA`, `FALSA` ou `ENGANOSA` exige duas origens
-independentes citadas. O código valida IDs de citação, formato e diversidade de
-origens declarada. Ele não comprova automaticamente que o trecho realmente
-sustenta a conclusão; essa avaliação exige revisão humana.
+Uma avaliação `EVIDENCIAS_SUFICIENTES_FAVORAVEIS` ou
+`EVIDENCIAS_SUFICIENTES_CONTRARIAS` exige duas origens qualificadas,
+independentes e citadas. O código valida IDs de citação, formato e diversidade
+de origens declarada, além de conferir que o trecho citado consta literalmente
+na fonte. Ele não comprova automaticamente que o trecho sustenta a classificação
+favorável ou contrária; essa avaliação exige revisão humana.
 
 ## Dataset próprio de avaliação
 

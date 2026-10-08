@@ -13,9 +13,23 @@ STATE = ROOT / "data" / "rag_auto_refresh.json"
 INTERVAL = timedelta(hours=24)
 
 
+def config_signature(config_path: Path) -> str:
+    """Inclui no hash a configuração e o conteúdo das fontes locais."""
+    digest = hashlib.sha256(config_path.read_bytes())
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    for entry in config.get("documents", []):
+        location = entry.get("path")
+        if not location:
+            continue
+        path = (config_path.parent / location).resolve()
+        digest.update(str(path).encode("utf-8"))
+        digest.update(path.read_bytes() if path.is_file() else b"<arquivo-ausente>")
+    return digest.hexdigest()
+
+
 def refresh_if_due(store, config_path: Path, state_path: Path = STATE) -> dict | None:
     """Coleta e indexa se passou um dia ou se a configuração mudou."""
-    signature = hashlib.sha256(config_path.read_bytes()).hexdigest()
+    signature = config_signature(config_path)
     now = datetime.now(timezone.utc)
     try:
         previous = json.loads(state_path.read_text(encoding="utf-8"))

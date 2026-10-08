@@ -5,9 +5,10 @@ alegação, pergunta ou link; recupera evidências em uma base vetorial; pode
 pesquisar fontes atuais na web; e usa um modelo de linguagem para organizar uma
 análise rastreável.
 
-O sistema **não declara que uma notícia é verdadeira ou falsa**. A resposta
-descreve o que as fontes consultadas sustentam, onde elas divergem e quais
-limitações impedem uma conclusão mais forte.
+O sistema apresenta um **veredito calibrado pelas evidências**, sem forçar uma
+classificação de verdadeiro ou falso. Quando faltam fontes, ele declara que não
+há evidência suficiente, descreve somente o que foi encontrado e ainda mostra
+as fontes recuperadas, separando-as daquelas efetivamente usadas na análise.
 
 O fluxo atual é um **RAG** (*Retrieval-Augmented Generation*): o modelo Qwen não
 é retreinado quando o corpus muda. Novos documentos são convertidos em
@@ -47,8 +48,8 @@ O fluxo principal:
 5. recupera também materiais educativos sobre verificação;
 6. entrega os trechos ao Qwen pelo Ollama;
 7. valida o JSON produzido e verifica se as citações pertencem ao contexto;
-8. tenta corrigir automaticamente uma resposta inválida uma vez;
-9. se as duas tentativas falharem, devolve uma resposta segura e inconclusiva;
+8. descarta respostas inválidas e apresenta trechos literais com as fontes encontradas;
+9. calcula o veredito com regras de citação, relevância e independência das fontes;
 10. registra fontes, parâmetros, métricas e artefatos no MLflow local.
 
 As evidências factuais e os materiais educativos são separados. Um guia sobre
@@ -75,12 +76,12 @@ flowchart TD
     S --> R[Selecionar trechos e origens distintas]
     L --> R
     C --> R
-    R --> Q[Qwen 2.5 7B no Ollama]
+    R --> P{Fonte direta encontrada?}
+    P -- Sim --> Q[Qwen seleciona trechos literais]
+    P -- Não --> F[Resposta extrativa inconclusiva]
     Q --> V[Validar estrutura, fontes e regras]
     V -- Válida --> A[Exibir análise]
-    V -- Inválida --> T[Uma tentativa automática de correção]
-    T -- Válida --> A
-    T -- Inválida --> F[Resposta segura: evidências insuficientes]
+    V -- Inválida --> F
     A --> M[Registrar run no MLflow local]
     F --> M
     M --> D[Sincronização opcional com DagsHub]
@@ -322,6 +323,19 @@ python main.py --debug
 
 ### Perguntar com busca local e web
 
+Ao usar a opção 3 do menu, o programa pergunta primeiro o nome do experimento
+MLflow. Todas as perguntas daquela conversa ficam agrupadas nesse experimento.
+Ao digitar `sair`, a configuração anterior é restaurada.
+
+Exemplo:
+
+```text
+Nome do experimento no MLflow (NexoVerdict-RAG): teste-prompt-v2
+```
+
+Para consultas diretas por linha de comando, o nome continua vindo de
+`MLFLOW_EXPERIMENT_NAME` no `.env`.
+
 ```bash
 python -m scripts.perguntar_rag "O governo vai proibir X em outubro?"
 ```
@@ -354,7 +368,7 @@ evidências externas.
 |---:|---|---|
 | 1 | Coletar documentos | Normaliza as fontes de `sources.json` no corpus |
 | 2 | Atualizar banco vetorial | Gera embeddings e atualiza o ChromaDB |
-| 3 | Conversar com a tutora | Usa base local e web em conversa contínua |
+| 3 | Conversar com a tutora | Pede o nome do experimento e inicia conversa local + web |
 | 4 | Descobrir checagens | Salva URLs candidatas para revisão humana |
 | 5 | Avaliar recuperação | Mede Hit@K e MRR com URLs esperadas |
 | 6 | Ver estado da base | Mostra corpus, índice, MLflow e modelo |
@@ -368,9 +382,10 @@ evidências externas.
 | 14 | Ver DagsHub | Mostra a URL do servidor remoto |
 | 0 | Sair | Encerra o programa |
 
-Ao abrir a opção 3, o projeto verifica se `sources.json` mudou ou se a última
-atualização ocorreu há mais de 24 horas. Quando necessário, coleta as fontes e
-atualiza o índice. Isso atualiza documentos e embeddings; não treina o Qwen.
+Ao abrir a opção 3, o projeto pede o nome do experimento MLflow e verifica se
+`sources.json` mudou ou se a última atualização ocorreu há mais de 24 horas.
+Quando necessário, coleta as fontes e atualiza o índice. Isso atualiza
+documentos e embeddings; não treina o Qwen.
 
 ## Referência de comandos
 
@@ -465,8 +480,8 @@ python -m scripts.avaliar_rag_mlflow \
   --run-name avaliacao-recuperacao-v1
 ```
 
-Avaliação completa, com uma geração do Qwen por caso e possível segunda
-tentativa de correção:
+Avaliação completa, com no máximo uma geração do Qwen por caso e resposta
+extrativa quando a saída não passa na validação:
 
 ```bash
 python -m scripts.avaliar_rag_mlflow \
@@ -537,13 +552,21 @@ apresentados ao RAG como evidência factual confiável.
 
 ## Formato da resposta
 
-O contrato atual é `analise-evidencias-v2`. A interface apresenta:
+O contrato atual é `analise-evidencias-v5`. A interface apresenta:
 
 ```text
 ANÁLISE
 
 Afirmação:
 "O governo vai proibir X em outubro."
+
+Veredito:
+Não há fontes suficientes para confirmar ou refutar esta afirmação. Abaixo
+está o que foi encontrado, sem transformar informações incompletas em uma
+conclusão.
+
+O que foi encontrado (quando não há citação literal validada):
+• Trechos literais das fontes recuperadas, claramente separados de uma conclusão.
 
 Evidências favoráveis:
 • Evidência factual citada e ligada a uma fonte.
@@ -552,17 +575,19 @@ Evidências contrárias:
 • Evidência factual que contradiz ou limita a afirmação.
 
 Contexto:
-Explicação necessária para interpretar as evidências.
+Quantidade de fontes recuperadas e de fontes diretamente relacionadas.
 
 Pontos de atenção:
-• A publicação original não foi encontrada.
-• Duas páginas reproduzem a mesma origem.
+• O título da fonte não confirma sozinho o conteúdo.
 
 Avaliação das evidências:
 🟡 Evidências conflitantes
 
 Limitações:
 Não foram encontradas fontes primárias suficientes.
+
+Fontes encontradas, não usadas como evidência:
+• Título, origem e URL de cada fonte recuperada.
 ```
 
 Categorias possíveis:
@@ -575,8 +600,15 @@ Categorias possíveis:
 | `EVIDENCIAS_INSUFICIENTES` | ⚪ Evidências insuficientes / inconclusivas | Faltam fontes, independência ou conteúdo verificável |
 | `NAO_APLICAVEL` | 🔘 Não aplicável | A entrada não contém alegação factual verificável |
 
-Uma análise favorável ou contrária descreve **as evidências recuperadas**. Ela
-não é um selo universal de verdadeiro ou falso.
+O Qwen devolve apenas a alegação e listas de trechos literais citados. O código
+confere se a alegação foi preservada, se cada citação aponta para uma fonte
+diretamente relacionada e se o trecho aparece literalmente nela. Contexto,
+limitações, lista de fontes e categoria do veredito são montados pelo código.
+Uma conclusão favorável ou contrária exige dois grupos de origem qualificados
+e independentes que o modelo tenha citado no mesmo sentido. A pertinência e a
+interpretação dos trechos ainda precisam de revisão humana. Fontes relacionadas
+continuam visíveis mesmo quando não são usadas no veredito; resultados sem
+relação com a alegação ficam somente no rastreio técnico.
 
 ## MLflow local
 
@@ -605,7 +637,7 @@ Acesse <http://127.0.0.1:5000>. Para encerrar, pressione `Ctrl+C`.
 - pergunta original;
 - documentos recuperados e distâncias;
 - contexto de execução, incluindo modo local ou web;
-- todas as tentativas brutas de geração;
+- a tentativa bruta de geração e eventuais correções locais de rótulos;
 - erros de validação;
 - resposta final validada;
 - categoria de avaliação;
@@ -649,10 +681,11 @@ python -m mlflow ui \
 | `fontes_web_qualificadas` | Fontes que atendem à política configurada |
 | `latencia_recuperacao_s` | Tempo gasto para recuperar contexto |
 | `latencia_geracao_s` | Tempo gasto pelo Qwen |
-| `latencia_total_s` | Tempo total da consulta |
-| `tentativas_geracao` | Uma tentativa normal ou duas após correção |
+| `latencia_total_s` | Tempo da consulta, incluindo pesquisa web, seleção e geração |
+| `cache_hit` | A pergunta e o histórico recente foram atendidos pelo cache da conversa |
+| `tentativas_geracao` | Zero sem fonte direta; caso contrário, no máximo uma chamada ao modelo |
 | `primeira_resposta_valida` | Indica se a primeira saída passou na validação |
-| `correcao_automatica_sucesso` | A segunda tentativa corrigiu a saída |
+| `correcao_automatica_sucesso` | Rótulos soltos como `E4` foram removidos e convertidos em achados literais, sem nova geração |
 | `fallback_seguro` | Foi necessário devolver a resposta conservadora |
 | `afirmacao_original_preservada` | A resposta manteve a alegação enviada |
 
@@ -991,5 +1024,5 @@ Esse modo só funciona quando todos os arquivos necessários já estão no cache
   históricos e limitações.
 
 Alguns documentos registram experimentos anteriores. Em caso de diferença, o
-contrato `analise-evidencias-v2`, este README e o código atual do branch
+contrato `analise-evidencias-v5`, este README e o código atual do branch
 `feat/rag` descrevem o fluxo em uso.

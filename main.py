@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 import requests
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import IntPrompt, Prompt
@@ -62,6 +63,24 @@ def temporary_mlflow(path: Path):
                 os.environ.pop(name, None)
             else:
                 os.environ[name] = value
+
+
+@contextmanager
+def selected_mlflow_experiment(name: str):
+    """Usa um experimento durante uma conversa e restaura o ambiente ao sair."""
+    normalized = name.strip()
+    if not normalized:
+        raise ValueError("O nome do experimento não pode ficar vazio")
+    variable = "MLFLOW_EXPERIMENT_NAME"
+    previous = os.environ.get(variable)
+    os.environ[variable] = normalized
+    try:
+        yield normalized
+    finally:
+        if previous is None:
+            os.environ.pop(variable, None)
+        else:
+            os.environ[variable] = previous
 
 
 def corpus_counts() -> dict[str, int]:
@@ -129,10 +148,20 @@ def index() -> None:
 
 
 def render_answer(answer: dict) -> None:
+    from rag.tutor import EVALUATION_DESCRIPTIONS, VERDICT_TEXTS
+
     console.print("[bold]ANÁLISE[/bold]")
     console.print(Panel(Text(answer["afirmacao"]), title="Afirmação", border_style="cyan"))
+    verdict = answer.get("veredito") or VERDICT_TEXTS[answer["avaliacao_evidencias"]]
+    console.print(Panel(Text(verdict), title="Veredito", border_style="yellow"))
     if answer.get("fonte_enviada"):
         console.print(f"[dim]Publicação enviada: {answer['fonte_enviada']['url']}[/dim]")
+    if answer.get("achados"):
+        console.print(Panel(
+            Text("\n\n".join(f"• {value}" for value in answer["achados"])),
+            title="O que foi encontrado (trechos literais, não validados como conclusão)",
+            border_style="cyan",
+        ))
     for title, key, color in (("Evidências favoráveis", "evidencias_favoraveis", "green"),
                               ("Evidências contrárias", "evidencias_contrarias", "red"),
                               ("Pontos de atenção", "pontos_de_atencao", "yellow")):
@@ -140,7 +169,6 @@ def render_answer(answer: dict) -> None:
         console.print(Panel(Text("\n".join(f"• {value}" for value in values) if values else "Nenhuma encontrada."),
                             title=title, border_style=color))
     console.print(Panel(Text(answer["contexto"]), title="Contexto", border_style="blue"))
-    from rag.tutor import EVALUATION_DESCRIPTIONS
     console.print(Panel(Text(EVALUATION_DESCRIPTIONS[answer["avaliacao_evidencias"]]),
                         title="Avaliação das evidências", border_style="yellow"))
     console.print(Panel(Text(answer["limitacoes"]), title="Limitações", border_style="magenta"))
@@ -160,15 +188,19 @@ def render_answer(answer: dict) -> None:
                 Text(source["url"]),
             )
         console.print(table)
-    consulted = [item for item in answer.get("fontes_consultadas", [])
+    found = answer.get("fontes_encontradas", answer.get("fontes_consultadas", []))
+    consulted = [item for item in found
                  if item["url"] not in {source["url"] for source in answer["fontes"]}]
     if consulted:
-        table = Table(title="Evidências recuperadas, não citadas na conclusão", show_lines=True)
+        table = Table(title="Fontes encontradas, não usadas como evidência", show_lines=True)
+        table.add_column("Relação")
         table.add_column("Origem")
         table.add_column("Título")
         table.add_column("URL", overflow="fold")
         for source in consulted:
-            table.add_row(source["origem"], source["titulo"], source["url"])
+            table.add_row({"direta": "Direta", "relacionada": "Relacionada",
+                           "nao_relacionada": "Outra"}.get(source.get("relevancia"), "—"),
+                          source["origem"], source["titulo"], source["url"])
         console.print(table)
     console.print(Text(answer["limite_da_validacao"], style="dim"))
     research = answer.get("pesquisa_web")
@@ -184,6 +216,18 @@ def render_answer(answer: dict) -> None:
 
 
 def talk() -> None:
+    load_dotenv(ROOT / ".env")
+    default_experiment = os.getenv("MLFLOW_EXPERIMENT_NAME", "NexoVerdict-RAG")
+    experiment_name = Prompt.ask(
+        "Nome do experimento no MLflow",
+        default=default_experiment,
+    ).strip()
+    with selected_mlflow_experiment(experiment_name):
+        console.print(f"[dim]Experimento MLflow: {experiment_name}[/dim]")
+        _talk()
+
+
+def _talk() -> None:
     from rag.auto_refresh import refresh_if_due
     from rag.store import VectorStore
     from rag.tutor import ask_online

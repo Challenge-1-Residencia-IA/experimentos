@@ -14,7 +14,9 @@ from dotenv import load_dotenv
 
 from rag.corpus import ROOT
 from rag.dagshub_tracking import REGISTERED_MODEL_NAME, configure_tracking, contract_fingerprint, git_revision, matching_model_version
+from rag.relevance import relevance
 from rag.store import VectorStore
+from rag.web import repair_mojibake
 
 SYSTEM_PROMPT = (ROOT / "prompts" / "tutora_rag.txt").read_text(encoding="utf-8")
 
@@ -26,33 +28,59 @@ EVALUATION_DESCRIPTIONS = {
     "NAO_APLICAVEL": "🔘 Não aplicável (sem alegação factual verificável)",
 }
 EVALUATIONS = set(EVALUATION_DESCRIPTIONS)
-CONCLUSIVE_EVALUATIONS = {
-    "EVIDENCIAS_SUFICIENTES_FAVORAVEIS",
-    "EVIDENCIAS_SUFICIENTES_CONTRARIAS",
+RESPONSE_VERSION = "analise-evidencias-v5"
+
+VERDICT_TEXTS = {
+    "EVIDENCIAS_CONFLITANTES": (
+        "As fontes encontradas apresentam informações conflitantes. Não é possível chegar "
+        "a uma conclusão segura sem evidências adicionais."
+    ),
+    "EVIDENCIAS_SUFICIENTES_FAVORAVEIS": (
+        "As fontes encontradas oferecem sustentação suficiente para a afirmação, dentro dos "
+        "limites e do contexto apresentados abaixo."
+    ),
+    "EVIDENCIAS_SUFICIENTES_CONTRARIAS": (
+        "As fontes encontradas oferecem evidências suficientes contra a afirmação, dentro dos "
+        "limites e do contexto apresentados abaixo."
+    ),
+    "EVIDENCIAS_INSUFICIENTES": (
+        "Não há fontes suficientes para confirmar ou refutar esta afirmação. Abaixo está o que "
+        "foi encontrado, sem transformar informações incompletas em uma conclusão."
+    ),
+    "NAO_APLICAVEL": (
+        "Não foi identificada uma afirmação factual específica que possa receber um veredito."
+    ),
 }
-RESPONSE_VERSION = "analise-evidencias-v2"
 
 ANSWER_SCHEMA = {
     "type": "object",
+    "additionalProperties": False,
     "properties": {
-        "afirmacao": {"type": "string"},
-        "evidencias_favoraveis": {"type": "array", "items": {"type": "string"}},
-        "evidencias_contrarias": {"type": "array", "items": {"type": "string"}},
-        "contexto": {"type": "string"},
-        "pontos_de_atencao": {"type": "array", "items": {"type": "string"}},
-        "avaliacao_evidencias": {"type": "string", "enum": sorted(EVALUATIONS)},
-        "limitacoes": {"type": "string"},
-        "fontes_usadas": {"type": "array", "items": {"type": "integer"}},
+        "afirmacao": {
+            "type": "string",
+            "description": "Copia literal de afirmacao_original.",
+        },
+        "evidencias_favoraveis": {
+            "type": "array",
+            "description": "Frases completas sustentadas por evidencias factuais; nunca rotulos soltos.",
+            "items": {
+                "type": "string",
+                "description": "Frase completa contendo uma citacao numerica como [1]. Nunca use apenas E1.",
+            },
+        },
+        "evidencias_contrarias": {
+            "type": "array",
+            "description": "Frases completas sustentadas por evidencias factuais; nunca rotulos soltos.",
+            "items": {
+                "type": "string",
+                "description": "Frase completa contendo uma citacao numerica como [1]. Nunca use apenas E1.",
+            },
+        },
     },
     "required": [
         "afirmacao",
         "evidencias_favoraveis",
         "evidencias_contrarias",
-        "contexto",
-        "pontos_de_atencao",
-        "avaliacao_evidencias",
-        "limitacoes",
-        "fontes_usadas",
     ],
 }
 
@@ -69,8 +97,10 @@ def ask(
     model_name: str | None = None,
     tracking_context: dict | None = None,
     generation_diagnostics: dict | None = None,
+    pipeline_started: float | None = None,
+    result_items: list[dict] | None = None,
 ) -> dict:
-    started = time.perf_counter()
+    started = pipeline_started if pipeline_started is not None else time.perf_counter()
     load_dotenv(ROOT / ".env")
     retrieval_started = time.perf_counter()
     if evidence is None or teaching is None:
@@ -83,79 +113,82 @@ def ask(
     items = []
     evidence_items = []
     teaching_items = []
-    for index, item in enumerate(evidence + teaching, 1):
+    ranked_evidence = sorted(
+        evidence,
+        key=lambda item: (
+            {"direta": 2, "relacionada": 1, "nao_relacionada": 0}[relevance(
+                question, item["metadata"]["title"], item["text"]
+            )[0]],
+            relevance(question, item["metadata"]["title"], item["text"])[1],
+        ),
+        reverse=True,
+    )
+    for index, item in enumerate(ranked_evidence + teaching, 1):
         metadata = item["metadata"]
+        level, _score = relevance(question, metadata["title"], item["text"])
+        level = metadata.get("relevancia", level) if metadata["kind"] == "evidencia" else "educativo"
         normalized = {
             "numero": index,
             "rotulo": f"{'E' if metadata['kind'] == 'evidencia' else 'M'}{index}",
             "tipo": metadata["kind"],
-            "titulo": metadata["title"],
+            "titulo": repair_mojibake(metadata["title"]),
             "origem": metadata["source"],
-            "grupo_origem": metadata["origin_group"],
+            "grupo_origem": canonical_origin_group(metadata["origin_group"]),
             "url": metadata["url"],
             "data": metadata.get("published_at", ""),
             "qualificada": metadata.get("conclusive_eligible", True),
-            "trecho": item["text"],
+            "trecho": repair_mojibake(item["text"]),
             "distancia_vetorial": item.get("distance"),
+            "relevancia": level,
         }
         items.append(normalized)
         (evidence_items if metadata["kind"] == "evidencia" else teaching_items).append(normalized)
+    direct_items = [item for item in evidence_items if item["relevancia"] == "direta"][:4]
     prompt_data = {
         "afirmacao_original": question,
-        "evidencias_factuais": evidence_items,
-        "materiais_educativos": teaching_items,
+        "evidencias_factuais": [
+            {key: item[key] for key in (
+                "numero", "rotulo", "titulo", "origem", "grupo_origem", "url", "data", "qualificada"
+            )} | {"trecho": item["trecho"][:1100]} for item in direct_items
+        ],
+        "materiais_educativos": [
+            {"numero": item["numero"], "rotulo": item["rotulo"],
+             "titulo": item["titulo"], "trecho": item["trecho"][:700]}
+            for item in teaching_items[:1]
+        ],
         "publicacao_enviada": publication,
-        "historico": (history or [])[-4:],
+        "historico": (history or [])[-2:],
     }
     prompt = json.dumps(prompt_data, ensure_ascii=False)
     generation_started = time.perf_counter()
     attempts = []
     validation_errors = []
-    payload = ollama_json(SYSTEM_PROMPT, prompt, ANSWER_SCHEMA, model_name=model_name)
-    attempts.append(deepcopy(payload))
-    if isinstance(payload, dict):
-        payload["afirmacao"] = question.strip()
+    payload = None
+    local_repairs = 0
     try:
+        if not direct_items:
+            raise ValueError("Nenhuma fonte diretamente alinhada à alegação foi recuperada")
+        payload = ollama_json(SYSTEM_PROMPT, prompt, ANSWER_SCHEMA, model_name=model_name)
+        attempts.append(deepcopy(payload))
+        if not isinstance(payload, dict) or payload.get("afirmacao") != question.strip():
+            raise ValueError("O modelo alterou a alegação original")
+        local_repairs = repair_evidence_labels(payload, items)
         answer = validate_answer(payload, items)
-        first_valid = True
-        repaired = False
+        first_valid = local_repairs == 0
+        repaired = local_repairs > 0
         fallback = False
-    except ValueError as error:
+    except (ValueError, requests.RequestException, json.JSONDecodeError, KeyError) as error:
         first_valid = False
         validation_errors.append(str(error))
-        repair_prompt = json.dumps({
-            **prompt_data,
-            "resposta_rejeitada": attempts[-1],
-            "erro_de_validacao": str(error),
-            "instrucao_de_correcao": (
-                "Corrija somente o necessário. Em evidencias_favoraveis e "
-                "evidencias_contrarias use apenas documentos de evidencias_factuais. "
-                "Copie afirmacao_original exatamente no campo afirmacao."
-            ),
-        }, ensure_ascii=False)
-        try:
-            repaired_payload = ollama_json(
-                SYSTEM_PROMPT,
-                repair_prompt,
-                ANSWER_SCHEMA,
-                model_name=model_name,
-            )
-            attempts.append(deepcopy(repaired_payload))
-            if isinstance(repaired_payload, dict):
-                repaired_payload["afirmacao"] = question.strip()
-            answer = validate_answer(repaired_payload, items)
-            repaired = True
-            fallback = False
-        except ValueError as repair_error:
-            validation_errors.append(str(repair_error))
-            answer = safe_fallback(question, items)
-            repaired = False
-            fallback = True
+        answer = safe_fallback(question, items)
+        repaired = False
+        fallback = True
     generation_s = time.perf_counter() - generation_started
     diagnostics = {
         "tentativas_geracao": len(attempts),
         "primeira_resposta_valida": first_valid,
         "correcao_automatica_sucesso": repaired,
+        "referencias_corrigidas_localmente": local_repairs,
         "fallback_seguro": fallback,
         "afirmacao_original_preservada": answer["afirmacao"] == question.strip(),
         "erros_validacao": validation_errors,
@@ -163,6 +196,9 @@ def ask(
     if generation_diagnostics is not None:
         generation_diagnostics.clear()
         generation_diagnostics.update(diagnostics)
+    if result_items is not None:
+        result_items.clear()
+        result_items.extend(deepcopy(items))
     if track:
         tracking_context = dict(tracking_context or {"modo": "local"})
         tracking_context.setdefault("metricas_execucao", {}).update({
@@ -177,6 +213,8 @@ def ask(
         })
         generation_trace = {
             "tentativas": attempts,
+            "resposta_apos_correcoes_locais": payload,
+            "referencias_corrigidas_localmente": local_repairs,
             "erros_validacao": validation_errors,
             "resposta_final_foi_fallback": fallback,
         }
@@ -185,23 +223,115 @@ def ask(
 
 
 def safe_fallback(question: str, items: list[dict]) -> dict:
-    """Produz uma resposta válida e conservadora após duas gerações rejeitadas."""
+    """Produz uma resposta extrativa sem reaproveitar narrativa rejeitada."""
+    explanation = _safe_explanation(items)
     payload = {
         "afirmacao": question.strip(),
         "evidencias_favoraveis": [],
         "evidencias_contrarias": [],
-        "contexto": "Não foi possível gerar uma análise que passasse pelas validações automáticas.",
-        "pontos_de_atencao": [
-            "A resposta automática foi descartada porque não respeitou as regras de uso das fontes."
-        ],
+        **explanation,
         "avaliacao_evidencias": "EVIDENCIAS_INSUFICIENTES",
-        "limitacoes": (
-            "A análise requer nova tentativa ou revisão humana; nenhuma conclusão factual da "
-            "resposta rejeitada foi apresentada."
-        ),
-        "fontes_usadas": [],
+        "achados": _literal_findings(items),
     }
     return validate_answer(payload, items)
+
+
+def _safe_explanation(items: list[dict]) -> dict:
+    """Texto baseado somente na contagem e na classificação das fontes."""
+    direct = [item for item in items if item["tipo"] == "evidencia"
+              and item.get("relevancia", "direta") == "direta"]
+    found = [item for item in items if item["tipo"] == "evidencia"
+             and item.get("relevancia", "direta") != "nao_relacionada"]
+    qualified_groups = {canonical_origin_group(item["grupo_origem"])
+                        for item in direct if item["qualificada"]}
+    direct_verb = "tem" if len(direct) == 1 else "têm"
+    return {
+        "contexto": (
+            f"Foram encontradas {len(found)} fontes; {len(direct)} {direct_verb} "
+            "correspondência direta no título com os elementos da alegação. Os trechos abaixo "
+            "são excertos dessas páginas, não uma confirmação independente."
+            if found else "A busca não recuperou fontes factuais sobre a alegação."
+        ),
+        "pontos_de_atencao": [
+            "A correspondência do título com a pergunta não confirma, por si só, o conteúdo da página."
+        ] if direct else [],
+        "limitacoes": (
+            f"Origens qualificadas com título diretamente alinhado: {len(qualified_groups)}. "
+            "Duas origens independentes com trechos verificáveis no mesmo "
+            "sentido são necessárias para uma conclusão. A classificação automática de "
+            "relevância não substitui a conferência das páginas originais."
+        ),
+    }
+
+
+def repair_evidence_labels(payload: dict, items: list[dict]) -> int:
+    """Remove rótulos soltos e preserva os achados literais sem inferir polaridade."""
+    repaired = 0
+    for field in ("evidencias_favoraveis", "evidencias_contrarias"):
+        values = payload.get(field)
+        if not isinstance(values, list):
+            continue
+        normalized = []
+        for value in values:
+            match = re.fullmatch(r"\s*E\s*(\d+)\s*", value, flags=re.IGNORECASE) if isinstance(value, str) else None
+            if not match:
+                normalized.append(value)
+                continue
+            index = int(match.group(1))
+            if index < 1 or index > len(items) or items[index - 1]["tipo"] != "evidencia":
+                normalized.append(value)
+                continue
+            repaired += 1
+        payload[field] = normalized
+    if repaired:
+        safe = safe_fallback(payload["afirmacao"], items)
+        for field in ("evidencias_favoraveis", "evidencias_contrarias", "contexto",
+                      "pontos_de_atencao", "limitacoes", "achados"):
+            payload[field] = safe[field]
+    return repaired
+
+
+def _literal_excerpt(value: str, limit: int = 320) -> str:
+    excerpt = re.sub(r"\s+", " ", value).strip()
+    if len(excerpt) > limit:
+        excerpt = excerpt[:limit - 3].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
+    return excerpt
+
+
+def _literal_findings(items: list[dict], limit: int = 4) -> list[str]:
+    """Resume o fallback com excertos literais, sem convertê-los em conclusão."""
+    findings = []
+    ranked = sorted(
+        (item for item in items if item["tipo"] == "evidencia"),
+        key=lambda item: item.get("relevancia", "direta") == "direta",
+        reverse=True,
+    )
+    for item in ranked:
+        if item.get("relevancia") == "nao_relacionada":
+            continue
+        excerpt = _literal_excerpt(item.get("trecho", ""))
+        if not excerpt:
+            continue
+        findings.append(f'Fonte [{item["numero"]}] — {item["titulo"]}: “{excerpt}”')
+        if len(findings) >= limit:
+            break
+    return findings
+
+
+def _source_summary(item: dict, *, cited: bool) -> dict:
+    """Expõe a fonte recuperada sem confundi-la com evidência efetivamente citada."""
+    return {
+        "numero": item["numero"],
+        "tipo": item["tipo"],
+        "titulo": item["titulo"],
+        "origem": item["origem"],
+        "grupo_origem": item["grupo_origem"],
+        "url": item["url"],
+        "data": item.get("data", ""),
+        "qualificada": item.get("qualificada", False),
+        "relevancia": item.get("relevancia", "direta"),
+        "citada": cited,
+    }
 
 
 def _track_answer(question: str, items: list[dict], payload: dict, answer: dict,
@@ -243,7 +373,8 @@ def ollama_json(system: str, user: str, schema: dict,
     response = requests.post(
         endpoint,
         json={"model": model_name or os.getenv("OLLAMA_MODEL", "qwen2.5:7b"), "stream": False,
-              "format": schema, "options": {"temperature": 0},
+              "format": schema, "keep_alive": "15m",
+              "options": {"temperature": 0, "num_predict": 700},
               "messages": [{"role": "system", "content": system},
                            {"role": "user", "content": user}]},
         timeout=180,
@@ -283,16 +414,24 @@ def _meaningful_words(value: str) -> set[str]:
     return {word for word in re.findall(r"[a-z0-9]{4,}", plain) if word not in ignored}
 
 
+def canonical_origin_group(value: str) -> str:
+    """Unifica aliases locais que representam a mesma origem editorial."""
+    normalized = value.casefold().strip()
+    if normalized in {"grupo_globo", "g1", "g1.globo.com", "globo.com"}:
+        return "globo.com"
+    return normalized
+
+
 def _local_evidence(store: VectorStore, claim: str, excluded_groups: set[str]) -> list[dict]:
     """Usa apenas trechos locais com termos concretos da alegação."""
     words = _meaningful_words(claim)
     if not words:
         return []
     selected = []
-    groups = set(excluded_groups)
+    groups = {canonical_origin_group(group) for group in excluded_groups}
     for item in store.search(claim, "evidencia", limit=12, max_per_source=2):
         metadata = item["metadata"]
-        group = metadata["origin_group"]
+        group = canonical_origin_group(metadata["origin_group"])
         if group in groups:
             continue
         overlap = words & _meaningful_words(metadata["title"] + " " + item["text"])
@@ -311,6 +450,33 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
     """Pesquisa páginas atuais, seleciona trechos e gera a resposta educativa."""
     from rag.web import passages, split_input
 
+    pipeline_started = time.perf_counter()
+    cache = getattr(researcher, "answer_cache", None)
+    cache_key = (
+        " ".join(message.split()),
+        model_name or os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
+        json.dumps((history or [])[-2:], ensure_ascii=False, sort_keys=True),
+    )
+    if cache is not None and cache_key in cache:
+        cached_at, cached_answer, cached_items = cache[cache_key]
+        if pipeline_started - cached_at < 600:
+            answer = deepcopy(cached_answer)
+            answer["pesquisa_web"] = {**(answer.get("pesquisa_web") or {}), "resposta_em_cache": True}
+            if track:
+                _track_answer(message, cached_items, {"cache": True}, answer, {
+                    "modo": "cache",
+                    "pesquisa_web": answer["pesquisa_web"],
+                    "metricas_execucao": {
+                        "cache_hit": 1.0,
+                        "latencia_pesquisa_web_s": 0.0,
+                        "latencia_recuperacao_s": 0.0,
+                        "latencia_geracao_s": 0.0,
+                        "latencia_total_s": time.perf_counter() - pipeline_started,
+                        "tentativas_geracao": 0.0,
+                    },
+                })
+            return answer
+        del cache[cache_key]
     text, url = split_input(message)
     if not text and not url:
         raise ValueError("Escreva uma pergunta, alegação ou URL")
@@ -325,8 +491,10 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
                     "evidencias_favoraveis": [], "evidencias_contrarias": [],
                     "contexto": "O conteúdo enviado não apresentou uma afirmação específica para análise.",
                     "pontos_de_atencao": [], "avaliacao_evidencias": "NAO_APLICAVEL",
+                    "veredito": VERDICT_TEXTS["NAO_APLICAVEL"],
                     "limitacoes": "A extração automática da alegação pode precisar de revisão.",
-                    "fontes": [], "fonte_enviada": publication, "pesquisa_web": None,
+                    "fontes": [], "fontes_encontradas": [], "fontes_usadas": [],
+                    "fonte_enviada": publication, "pesquisa_web": None,
                     "limite_da_validacao": "A extração automática da alegação pode precisar de revisão."}
             if track:
                 _track_answer(message, [], answer, answer)
@@ -352,23 +520,26 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
     evidence.extend(local)
     diagnostics["evidencias_locais"] = len(local)
     teaching = store.search(claim, "educativo", limit=3, max_per_source=2)
+    result_items = []
     answer = ask(claim, store, evidence=evidence, teaching=teaching,
                  history=history, publication=publication, track=track,
                  model_name=model_name,
+                 pipeline_started=pipeline_started,
+                 result_items=result_items,
                  tracking_context={"modo": "web", "pesquisa_web": diagnostics,
                                    "publicacao_enviada": publication,
                                    "metricas_execucao": {
                                        "latencia_pesquisa_web_s": research_s,
+                                       "cache_hit": 0.0,
                                    }})
     answer["alegacao_verificada"] = claim
     answer["fonte_enviada"] = publication
     answer["pesquisa_web"] = diagnostics
-    answer["fontes_consultadas"] = [{"titulo": item["metadata"]["title"],
-                                    "url": item["metadata"]["url"],
-                                    "origem": item["metadata"]["origin_group"],
-                                    "data": item["metadata"].get("published_at", ""),
-                                    "qualificada": item["metadata"].get("conclusive_eligible", True)}
-                                   for item in evidence]
+    answer["fontes_consultadas"] = answer["fontes_encontradas"]
+    if cache is not None:
+        if len(cache) >= 128:
+            cache.pop(next(iter(cache)))
+        cache[cache_key] = (time.perf_counter(), deepcopy(answer), result_items)
     return answer
 
 
@@ -385,48 +556,66 @@ def validate_answer(payload: dict, items: list[dict]) -> dict:
     for field in ANSWER_SCHEMA["required"]:
         if field not in payload:
             raise ValueError(f"Campo ausente na resposta: {field}")
-    if payload["avaliacao_evidencias"] not in EVALUATIONS:
-        raise ValueError("Avaliação das evidências inválida")
-    if not isinstance(payload["fontes_usadas"], list):
-        raise ValueError("fontes_usadas deve ser uma lista")
-    indices = payload["fontes_usadas"]
-    if any(not isinstance(index, int) or isinstance(index, bool) or index < 1 or index > len(items) for index in indices):
-        raise ValueError("A resposta citou um documento inexistente")
-    for field in ("afirmacao", "contexto", "limitacoes"):
-        if not isinstance(payload[field], str):
-            raise ValueError(f"{field} deve ser texto")
-    for field in ("evidencias_favoraveis", "evidencias_contrarias", "pontos_de_atencao"):
+    if not isinstance(payload["afirmacao"], str):
+        raise ValueError("afirmacao deve ser texto")
+    for field in ("evidencias_favoraveis", "evidencias_contrarias"):
         if not isinstance(payload[field], list) or any(not isinstance(value, str) for value in payload[field]):
             raise ValueError(f"{field} deve ser lista de textos")
-    factual_texts = (payload["evidencias_favoraveis"] + payload["evidencias_contrarias"]
-                     + payload["pontos_de_atencao"] + [payload["contexto"]])
+    factual_texts = payload["evidencias_favoraveis"] + payload["evidencias_contrarias"]
     cited_in_text = set().union(*(cited_numbers(value) for value in factual_texts))
     if any(index < 1 or index > len(items) for index in cited_in_text):
         raise ValueError("A resposta citou um documento inexistente")
     for field in ("evidencias_favoraveis", "evidencias_contrarias"):
-        if any(not cited_numbers(value) for value in payload[field]):
-            raise ValueError(f"{field} contém afirmação sem citação")
-        if any(items[index - 1]["tipo"] != "evidencia"
-               for value in payload[field] for index in cited_numbers(value)):
-            raise ValueError(f"{field} cita material educativo como prova factual")
-    payload["fontes_usadas"] = sorted(set(indices) | cited_in_text)
-    if not any(item["tipo"] == "evidencia" for item in items) and payload["avaliacao_evidencias"] != "NAO_APLICAVEL":
-        payload["avaliacao_evidencias"] = "EVIDENCIAS_INSUFICIENTES"
-        payload["evidencias_favoraveis"] = []
-        payload["evidencias_contrarias"] = []
-        payload["contexto"] = "A consulta não trouxe documentos factuais sobre a alegação."
-        payload["limitacoes"] = "Não foram recuperadas evidências factuais; procure a publicação original e registros primários."
-        payload["fontes_usadas"] = []
-    if payload["avaliacao_evidencias"] in CONCLUSIVE_EVALUATIONS:
-        groups = {
-            items[index - 1]["grupo_origem"]
-            for index in cited_in_text
-            if items[index - 1]["tipo"] == "evidencia" and items[index - 1]["qualificada"]
-        }
-        if len(groups) < 2:
-            payload["avaliacao_evidencias"] = "EVIDENCIAS_INSUFICIENTES"
-            payload["limitacoes"] += f" Foram citadas {len(groups)} origem(ns) qualificada(s) independente(s); a avaliação de suficiência exige duas."
-    payload["fontes"] = [items[index - 1] for index in sorted(set(payload["fontes_usadas"]))]
+        for value in payload[field]:
+            references = cited_numbers(value)
+            if len(references) != 1:
+                raise ValueError(f"{field} exige exatamente uma fonte por trecho literal")
+            index = next(iter(references))
+            source = items[index - 1]
+            if source["tipo"] != "evidencia" or source.get("relevancia", "direta") != "direta":
+                raise ValueError(f"{field} cita fonte que não analisa diretamente a alegação")
+            quotation = re.search(r'[“\"]([^”\"]{12,})[”\"]', value)
+            source_text = re.sub(r"\s+", " ", source["trecho"] + " " + source["titulo"]).casefold()
+            if not quotation or re.sub(r"\s+", " ", quotation.group(1)).casefold() not in source_text:
+                raise ValueError(f"{field} não contém trecho literal verificável na fonte")
+    # A lista declarada pelo modelo não basta: uma fonte só é usada quando [n]
+    # aparece de fato no texto validado.
+    payload["fontes_usadas"] = sorted(cited_in_text)
+    groups_by_side = []
+    for field in ("evidencias_favoraveis", "evidencias_contrarias"):
+        groups_by_side.append({
+            canonical_origin_group(items[index - 1]["grupo_origem"])
+            for value in payload[field]
+            for index in cited_numbers(value)
+            if items[index - 1]["qualificada"]
+        })
+    if groups_by_side[0] and groups_by_side[1]:
+        evaluation = "EVIDENCIAS_CONFLITANTES"
+    elif len(groups_by_side[0]) >= 2:
+        evaluation = "EVIDENCIAS_SUFICIENTES_FAVORAVEIS"
+    elif len(groups_by_side[1]) >= 2:
+        evaluation = "EVIDENCIAS_SUFICIENTES_CONTRARIAS"
+    else:
+        evaluation = "EVIDENCIAS_INSUFICIENTES"
+    payload["avaliacao_evidencias"] = evaluation
+    payload.update(_safe_explanation(items))
+    if not cited_in_text:
+        payload["achados"] = _literal_findings(items)
+    else:
+        payload.pop("achados", None)
+    cited = set(payload["fontes_usadas"])
+    payload["fontes"] = [items[index - 1] for index in sorted(cited)]
+    payload["fontes_encontradas"] = [
+        _source_summary(item, cited=item["numero"] in cited)
+        for item in items
+        if item["tipo"] == "evidencia" and item.get("relevancia", "direta") != "nao_relacionada"
+    ]
+    payload["fontes_descartadas"] = [
+        _source_summary(item, cited=False)
+        for item in items
+        if item["tipo"] == "evidencia" and item.get("relevancia") == "nao_relacionada"
+    ]
+    payload["veredito"] = VERDICT_TEXTS[payload["avaliacao_evidencias"]]
     payload["limite_da_validacao"] = (
         "A validação confere formato, referências e diversidade declarada de origens; "
         "o suporte factual das citações requer avaliação humana."

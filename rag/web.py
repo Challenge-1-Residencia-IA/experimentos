@@ -6,6 +6,7 @@ import ipaddress
 import json
 import re
 import socket
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -17,6 +18,7 @@ from ddgs import DDGS
 from pypdf import PdfReader
 
 from rag.corpus import chunks, stable_id
+from rag.relevance import relevance
 
 URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 MAX_BYTES = 5_000_000
@@ -25,6 +27,29 @@ SEARCH_RESULTS = 12
 USER_AGENT = "NexoVerdict/0.2 (educational fact checking)"
 POLICY_PATH = Path(__file__).resolve().parents[1] / "web_sources.json"
 MULTIPART_SUFFIXES = {"com.br", "gov.br", "org.br", "jus.br", "leg.br", "co.uk", "com.au"}
+
+
+def repair_mojibake(value: str) -> str:
+    """Corrige sequências UTF-8 interpretadas como Latin-1, sem alterar texto íntegro."""
+    def fix_word(match: re.Match[str]) -> str:
+        word = match.group()
+        if not any(marker in word for marker in ("Ã", "Â", "â€")):
+            return word
+        try:
+            fixed = word.encode("cp1252").decode("utf-8")
+        except (UnicodeError, LookupError):
+            return word
+        return fixed if fixed.count("Ã") + fixed.count("Â") < word.count("Ã") + word.count("Â") else word
+
+    return re.sub(r"\S+", fix_word, value)
+
+
+def decode_page(raw: bytes, declared_encoding: str | None) -> str:
+    """Páginas UTF-8 às vezes anunciam ISO-8859-1; UTF-8 válido tem prioridade."""
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode(declared_encoding or "cp1252", errors="replace")
 
 
 @lru_cache(maxsize=1)
@@ -108,14 +133,16 @@ def read_page(url: str) -> dict:
                 reader = PdfReader(BytesIO(raw))
                 text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
             elif "html" in content_type:
-                html = raw.decode(response.encoding or "utf-8", errors="replace")
+                html = decode_page(raw, response.encoding)
                 text = trafilatura.extract(html, include_comments=False, include_tables=True) or ""
                 metadata = trafilatura.extract_metadata(html)
                 if metadata:
                     title = metadata.title or title
                     date = metadata.date or ""
             else:
-                text = raw.decode(response.encoding or "utf-8", errors="replace")
+                text = decode_page(raw, response.encoding)
+            title = repair_mojibake(title)
+            text = repair_mojibake(text)
             text = re.sub(r"\n{3,}", "\n\n", text).strip()
             if len(text) < 100:
                 raise ValueError("A página não forneceu texto suficiente para checagem")
@@ -130,6 +157,7 @@ class WebResearcher:
     def __init__(self) -> None:
         self.pages: dict[str, dict] = {}
         self.searches: dict[str, list[dict]] = {}
+        self.answer_cache: dict[tuple[str, str, str], tuple[float, dict, list[dict]]] = {}
 
     def page(self, url: str) -> dict:
         if url not in self.pages:
@@ -165,27 +193,40 @@ class WebResearcher:
                 continue
             diagnostics["consultas"].append(search_query[:300])
             diagnostics["resultados"] += len(results)
-            results = sorted(results, key=lambda item: matches_domain(item.get("href") or item.get("url") or "", preferred),
-                             reverse=True)
-            for result in results:
-                url = result.get("href") or result.get("url") or ""
-                if not url or url == exclude_url:
-                    continue
-                try:
-                    page = self.page(url)
-                except Exception as error:  # Parser e sites externos podem falhar de formas diferentes.
-                    diagnostics["paginas_ignoradas"].append(
-                        {"url": url, "motivo": f"{type(error).__name__}: {str(error)[:100]}"}
-                    )
-                    continue
-                if page["origin_group"] in groups or page["origin_group"] == exclude_group or page["url"] == exclude_url:
-                    continue
-                groups.add(page["origin_group"])
-                documents.append(page)
-                if matches_domain(page["url"], preferred):
-                    diagnostics["fontes_qualificadas"] += 1
-                if len(documents) >= page_limit or diagnostics["fontes_qualificadas"] >= 2:
-                    break
+            results = sorted(
+                results,
+                key=lambda item: (
+                    {"direta": 2, "relacionada": 1, "nao_relacionada": 0}[
+                        relevance(query, item.get("title", ""), item.get("body", ""))[0]
+                    ],
+                    relevance(query, item.get("title", ""), item.get("body", ""))[1],
+                    matches_domain(item.get("href") or item.get("url") or "", preferred),
+                ),
+                reverse=True,
+            )
+            candidate_urls = [result.get("href") or result.get("url") or "" for result in results]
+            candidate_urls = [url for url in candidate_urls if url and url != exclude_url]
+            # Limita downloads simultâneos sem criar mais páginas que o teto da busca.
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {url: executor.submit(self.page, url) for url in candidate_urls[:MAX_PAGES]}
+                for url in candidate_urls:
+                    if len(documents) >= page_limit or diagnostics["fontes_qualificadas"] >= 2:
+                        break
+                    if url not in futures:
+                        futures[url] = executor.submit(self.page, url)
+                    try:
+                        page = futures[url].result()
+                    except Exception as error:  # Parser e sites externos podem falhar de formas diferentes.
+                        diagnostics["paginas_ignoradas"].append(
+                            {"url": url, "motivo": f"{type(error).__name__}: {str(error)[:100]}"}
+                        )
+                        continue
+                    if page["origin_group"] in groups or page["origin_group"] == exclude_group or page["url"] == exclude_url:
+                        continue
+                    groups.add(page["origin_group"])
+                    documents.append(page)
+                    if matches_domain(page["url"], preferred):
+                        diagnostics["fontes_qualificadas"] += 1
         diagnostics["paginas_lidas"] = len(documents)
         return documents, diagnostics
 
@@ -202,7 +243,15 @@ def passages(query: str, documents: list[dict], encoder, *, limit: int = 6) -> l
     vectors = encoder.encode([f"passage: {part}" for _, part in parts],
                              normalize_embeddings=True, batch_size=32)
     scored = sorted(((float(query_vector @ vector), page, part)
-                     for (page, part), vector in zip(parts, vectors)), reverse=True, key=lambda item: item[0])
+                     for (page, part), vector in zip(parts, vectors)),
+                    reverse=True,
+                    key=lambda item: (
+                        {"direta": 2, "relacionada": 1, "nao_relacionada": 0}[
+                            relevance(query, item[1]["title"], item[2])[0]
+                        ],
+                        relevance(query, item[1]["title"], item[2])[1],
+                        item[0],
+                    ))
     selected = []
     groups = set()
     for score, page, part in scored:
@@ -215,7 +264,8 @@ def passages(query: str, documents: list[dict], encoder, *, limit: int = 6) -> l
                          "metadata": {"kind": "evidencia", "source": group,
                                       "origin_group": group, "title": page["title"],
                                       "url": page["url"], "published_at": page["date"],
-                                      "conclusive_eligible": matches_domain(page["url"], source_policy()["conclusive_domains"])}})
+                                      "conclusive_eligible": matches_domain(page["url"], source_policy()["conclusive_domains"]),
+                                      "relevancia": relevance(query, page["title"], part)[0]}})
         if len(selected) >= limit:
             break
     return selected
