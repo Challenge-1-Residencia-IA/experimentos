@@ -19,6 +19,10 @@ data:
 golden-set:
 	python -m dados.golden_set
 
+.PHONY: pipeline
+pipeline:
+	dvc repro
+
 .PHONY: test
 test:
 	python -m pytest tests
@@ -30,4 +34,4 @@ clean:
 
 .DEFAULT_GOAL := help
 help:
-	@echo "Alvos disponíveis: create_environment, requirements, data, golden-set, test, clean"
+	@echo "Alvos disponíveis: create_environment, requirements, data, golden-set, pipeline, test, clean"

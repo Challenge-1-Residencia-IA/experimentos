@@ -1,0 +1,6 @@
+outs:
+- md5: a695125609a68506daf6d1bc4f0142c1.dir
+  size: 7742720
+  nfiles: 2
+  hash: md5
+  path: FakeTrue.Br

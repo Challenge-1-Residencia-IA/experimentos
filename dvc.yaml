@@ -1,0 +1,34 @@
+stages:
+  preparar:
+    desc: Camada genérica (interim) e visões por finalidade (processed) dos datasets.
+    cmd: python -m dados.preparar
+    deps:
+      - data/raw/Fake.br-Corpus
+      - data/raw/FakeTrue.Br
+      - dados/__init__.py
+      - dados/caminhos.py
+      - dados/carregar.py
+      - dados/texto.py
+      - dados/preparar.py
+    outs:
+      - data/interim/textos.parquet
+      - data/interim/boilerplate.json
+      - data/processed/base_checagens.parquet
+      - data/processed/avaliacao_busca.parquet
+      - data/processed/golden_set_candidatos.parquet
+      - data/processed/fewshot_candidatos.parquet
+      - reports/preparacao-dados.md:
+          cache: false
+
+  golden_set:
+    desc: Golden set a partir da planilha de anotação, com validação e concordância.
+    cmd: python -m dados.golden_set
+    deps:
+      - data/raw/golden_set
+      - dados/__init__.py
+      - dados/caminhos.py
+      - dados/golden_set.py
+    outs:
+      - data/processed/golden_set_v1.jsonl
+      - reports/golden-set-v1.md:
+          cache: false

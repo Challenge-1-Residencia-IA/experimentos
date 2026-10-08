@@ -1,0 +1,6 @@
+[core]
+    autostage = true
+    remote = dagshub
+['remote "dagshub"']
+    url = https://dagshub.com/FilipeLacerda738/experimentos.dvc
+    auth = basic
