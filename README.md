@@ -840,6 +840,25 @@ O pacote `guardrails/` protege a tutora em três camadas. Os pontos de entrada (
 | Blindagem | `guardrails/blindagem.py` | Antes de ir ao prompt, cada título e trecho de fonte (web ou base) perde marcações de papel de chat e frases que tentam instruir o modelo | GR-03 |
 | Saída | `guardrails/saida.py` | Remove dos textos gerados frases com veredito de verdadeiro/falso ou que julgam o usuário (citações entre aspas são preservadas); acrescenta aviso e fontes oficiais em temas de risco (saúde, eleição, golpe, segurança) | GR-01, GR-04, GR-06 |
 
+### Rails de entrada com NeMo Guardrails
+
+Os rails de entrada rodam pelo [NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails)
+(NVIDIA), configurado em `guardrails/nemo/` (`config.yml` e `rails.co`) e chamado por
+`guardrails/camada_nemo.py` com `LLMRails.check`. O NeMo só verifica a entrada; a resposta
+continua sendo gerada pela tutora.
+
+1. `verificacao deterministica`: as verificações por padrão de `guardrails/entrada.py`, registradas
+   como action. Recusam em menos de 1 ms, sem chamar o LLM.
+2. `self check input`: rail da biblioteca do NeMo, com prompt em português e exemplos (few-shot),
+   que pede ao Qwen para classificar escopo e tentativa de instrução nos casos que os padrões não
+   pegam (por exemplo, "me conta uma piada"). Custa cerca de 1 s e só é usado em mensagens com até
+   `LIMITE_PALAVRAS_LLM` palavras e sem link: nos testes, o Qwen bloqueava por engano alguns boatos
+   longos, e pedidos fora do escopo costumam ser curtos.
+
+Se o NeMo ou o Ollama falharem, as verificações por padrão continuam valendo e a falha é registrada
+em `guardrails.entrada.sinais`. `GUARDRAILS_NEMO=0` desativa o NeMo. O nome do modelo vem de
+`OLLAMA_MODEL`, como na tutora. O NeMo exige Python 3.11 a 3.13.
+
 Cada resposta traz o campo `guardrails`, com o que foi recusado, removido ou acrescentado.
 Os padrões ficam em `guardrails/padroes.py` e são heurísticas por expressões regulares,
 aplicadas sobre o texto sem acento e em minúsculas. Os testes (`tests/test_guardrails.py`)

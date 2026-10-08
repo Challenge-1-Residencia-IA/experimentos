@@ -9,3 +9,4 @@ requests
 rich
 sentence-transformers
 trafilatura
+nemoguardrails

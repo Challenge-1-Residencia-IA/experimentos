@@ -49,12 +49,15 @@ FORA_DO_ESCOPO = _compilar([
                 r"programar|programacao|codigo|script|exercicio|tarefa|prova|dever de casa|matematica|redacao)\b",
     r"^como (?:eu )?(?:faco|fazer|crio|criar|programo|programar|instalo|instalar|configuro|configurar)\b.{0,50}\b"
     r"(?:python|codigo|script|programa|excel|planilha|site|app|api|banco de dados|bolo|receita)\b",
+    r"^quanto (?:e|eh|da|sao|fica) (?:[\d(]|o dobro|a metade|a raiz)",
+    r"^(?:qual|como) (?:e |eh |esta |sera |vai ser |fica )?(?:a )?previsao do tempo\b",
 ])
 
 # Saudação ou pergunta sobre o próprio assistente, sem conteúdo para analisar.
 APRESENTACAO = _compilar([
     r"^(?:oi|ola|opa|e ai|eai|hello|hi|hey|bom dia|boa tarde|boa noite|tudo bem|tudo bom|salve)(?:[ ,]+\w+)?[ !?.]*$",
     r"^(?:quem (?:e|eh) voce|o que voce (?:faz|e)|como voce funciona|para que (?:voce )?serve|ajuda|help|menu)[ !?.]*$",
+    r"^(?:qual|que) (?:e |eh )?(?:o )?(?:seu|teu) modelo\b|^que (?:modelo|ia|llm|inteligencia artificial) (?:e|eh) voce\b",
 ])
 
 # Afirmação categórica do sistema sobre a mensagem (GR-01). Aplicada fora de trechos citados.

@@ -87,7 +87,7 @@ def main() -> None:
     requirements = [f"{name}=={version(name)}" for name in (
         "mlflow", "chromadb", "sentence-transformers", "requests",
         "python-dotenv", "feedparser", "beautifulsoup4", "pypdf", "pandas",
-        "ddgs", "trafilatura")]
+        "ddgs", "trafilatura", "nemoguardrails")]
     with mlflow.start_run(run_name=f"registro-rag-{RESPONSE_VERSION}") as run:
         mlflow.log_params({
             "response_version": RESPONSE_VERSION,
