@@ -33,8 +33,11 @@ htmlcov/
 # Notebooks
 .ipynb_checkpoints/
 
-# Dados locais e fontes brutas
-data/
+# Dados locais e fontes brutas gerenciados via DVC
+data/*
+!data/.gitignore
+!data/*.dvc
+!data/**/*.dvc
 raw/
 datasets/
 *.csv

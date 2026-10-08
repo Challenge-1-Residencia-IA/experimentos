@@ -1,0 +1,8 @@
+# Add patterns of files dvc should ignore, which could improve
+# the performance. Learn more at
+# https://dvc.org/doc/user-guide/dvcignore
+
+# Corpus e repositorios terceiros locais
+data/raw/**/.git/
+**/.DS_Store
+**/.gitkeep

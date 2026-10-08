@@ -1,0 +1,5 @@
+outs:
+- md5: d88ca6e05e9c630e3d8c138e9f539551
+  size: 2933
+  hash: md5
+  path: manifest_rag.json

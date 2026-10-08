@@ -1,0 +1,6 @@
+outs:
+- md5: bb7a35918d35e9662605215125470754.dir
+  size: 645929
+  nfiles: 2
+  hash: md5
+  path: avaliacao
