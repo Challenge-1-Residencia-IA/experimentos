@@ -15,6 +15,10 @@ requirements:
 data:
 	python -m dados.preparar
 
+.PHONY: golden-set
+golden-set:
+	python -m dados.golden_set
+
 .PHONY: test
 test:
 	python -m pytest tests
@@ -26,4 +30,4 @@ clean:
 
 .DEFAULT_GOAL := help
 help:
-	@echo "Alvos disponíveis: create_environment, requirements, data, test, clean"
+	@echo "Alvos disponíveis: create_environment, requirements, data, golden-set, test, clean"
