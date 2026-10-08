@@ -48,3 +48,31 @@ def test_busca_prioriza_titulo_direto_antes_de_dominio_qualificado(monkeypatch):
 def test_utf8_tem_prioridade_sobre_cabecalho_incorreto():
     assert decode_page("Flávio é citado".encode(), "iso-8859-1") == "Flávio é citado"
     assert repair_mojibake("FlÃ¡vio é citado") == "Flávio é citado"
+
+
+def test_desmentido_de_morte_permanece_relacionado():
+    level, _score = relevance(
+        "O vocalista do Guns N' Roses morreu?",
+        "Axl Rose não morreu",
+        "O cantor e vocalista segue vivo.",
+    )
+    assert level in {"direta", "relacionada"}
+
+
+def test_dominio_conhecido_generico_nao_encerra_busca_de_checagem(monkeypatch):
+    researcher = WebResearcher()
+    queries = []
+
+    def search(query):
+        queries.append(query)
+        return [{"href": "https://bbc.com/tema", "title": "Tema geral", "body": "Notícia geral"}]
+
+    monkeypatch.setattr(researcher, "search", search)
+    monkeypatch.setattr(researcher, "page", lambda _url: {
+        "url": "https://bbc.com/tema", "title": "Tema geral", "date": "",
+        "text": "Esta página não analisa a afirmação enviada pelo usuário.",
+        "origin_group": "bbc.com",
+    })
+    _pages, diagnostics = researcher.research("O projeto X foi aprovado?")
+    assert len(queries) == 2
+    assert diagnostics["fontes_qualificadas"] == 0

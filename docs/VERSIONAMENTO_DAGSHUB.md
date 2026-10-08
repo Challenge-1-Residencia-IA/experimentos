@@ -66,9 +66,10 @@ O segundo comando cria uma nova versão de `NexoVerdict-RAG-Analise-Evidencias`
 no **Model Registry** e uma execução de origem. Ele exige o corpus e o índice
 já criados, o Ollama ativo e `qwen2.5:7b` instalado. A versão fixa o digest do
 Qwen, a revisão do `intfloat/multilingual-e5-small`, hashes do índice e corpus,
-além do código executável. O repositório DagsHub deve continuar privado: o
-corpus reúne materiais com licenças MIT, Academic Use e CC BY-NC 4.0. Respeite
-as condições de cada fonte antes de compartilhar os artefatos fora da equipe.
+além do código executável. O repositório DagsHub deve continuar privado, mas
+isso não substitui a revisão das condições de uso de cada fonte. O manifesto
+pode conter `license=verificar`; esse valor não confirma autorização para enviar
+o corpus ou o índice ao serviço remoto.
 
 O Qwen e o modelo de embeddings executam localmente. No computador atual, os
 pesos do Qwen ficam em `~/.ollama/models/blobs/`; os embeddings ficam no cache
@@ -78,11 +79,11 @@ guardam a base local. Em outra máquina, instale Ollama, execute
 O pacote recusa a execução se o digest do Qwen instalado for diferente do
 registrado.
 
-O terceiro comando publica `rag-datasets-v1` como uma execução separada. Ela
+O terceiro comando publica `rag-datasets-v2` como uma execução separada. Ela
 contém o corpus principal, os arquivos do benchmark AVeriTeC e um manifesto
 com hashes, tamanhos, quantidades e licenças. Não publica HTML bruto, caches,
-credenciais ou arquivos temporários. Mantenha o repositório privado por causa
-das condições Academic Use e CC BY-NC 4.0 presentes no conjunto.
+credenciais ou arquivos temporários. O envio não é bloqueado quando a licença
+está pendente; revise as permissões dos arquivos antes de executá-lo.
 
 Para carregar a versão 1 registrada e consultar o fluxo com pesquisa web:
 
@@ -136,10 +137,17 @@ antes de usar esse modo em alto volume.
 
 Para sincronizar os runs locais já existentes sem repetir as chamadas ao Qwen:
 
+Na opção 13 do menu, `experimentos` sincroniza todos os experimentos locais com
+runs após mostrar a prévia e pedir confirmação. `tudo` inclui também modelo e
+datasets; `ambos` significa apenas modelo + datasets.
+
 ```sh
 .venv/bin/python -m scripts.sincronizar_runs_mlflow_dagshub --dry-run
 .venv/bin/python -m scripts.sincronizar_runs_mlflow_dagshub
 ```
+
+O comando sem `--experiment-name` seleciona apenas `NexoVerdict-RAG`. Use
+`--experiment-name` para outro experimento ou o menu para todos de uma vez.
 
 O sincronizador copia métricas, histórico das métricas, parâmetros, tags e um
 resumo rastreável com o ID original. Ele não copia os artefatos locais, pois os

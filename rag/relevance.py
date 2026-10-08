@@ -17,7 +17,9 @@ STOPWORDS = {
 def terms(value: str) -> set[str]:
     plain = unicodedata.normalize("NFKD", value.casefold())
     plain = "".join(char for char in plain if not unicodedata.combining(char))
-    return {word for word in re.findall(r"[a-z0-9]{4,}", plain) if word not in STOPWORDS}
+    words = {word for word in re.findall(r"[a-z0-9]{4,}", plain) if word not in STOPWORDS}
+    # Nomes como Rose/Roses não devem perder a correspondência por pluralização.
+    return words | {word[:-1] for word in words if len(word) >= 5 and word.endswith("s")}
 
 
 def relevance(claim: str, title: str, excerpt: str) -> tuple[str, float]:

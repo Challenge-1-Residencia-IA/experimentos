@@ -102,7 +102,7 @@ def test_ask_corrige_rotulo_isolado_localmente_sem_repetir_geracao(monkeypatch):
     assert answer["evidencias_favoraveis"] == []
     assert answer["evidencias_contrarias"] == []
     assert answer["achados"] == [
-        "Fonte [1] — Documento: “Trecho recuperado.”"
+        "Fonte [1] — página direta encontrada; conteúdo não validado como prova. Consulte o link abaixo."
     ]
     assert answer["fontes"] == []
     assert answer["veredito"].startswith("Não há fontes suficientes")
@@ -161,7 +161,7 @@ def test_ask_retorna_fallback_extrativo_para_saida_irrecuperavel(monkeypatch):
     assert diagnostics["fallback_seguro"] is True
     assert answer["evidencias_favoraveis"] == []
     assert answer["achados"] == [
-        "Fonte [1] — Documento: “Trecho recuperado.”"
+        "Fonte [1] — página direta encontrada; conteúdo não validado como prova. Consulte o link abaixo."
     ]
     assert answer["fontes"] == []
 
@@ -239,7 +239,7 @@ def test_modelo_que_muda_a_pergunta_e_totalmente_descartado(monkeypatch):
     assert prompts[0]["evidencias_factuais"][0]["url"] == "https://example.com/checagem"
     visible = " ".join([answer["contexto"], answer["limitacoes"], *answer["pontos_de_atencao"]])
     assert "influenciadores" not in visible.casefold()
-    assert "falso que Flávio Bolsonaro" in answer["achados"][0]
+    assert "conteúdo não validado como prova" in answer["achados"][0]
 
 
 def test_veredito_conclusivo_depende_de_duas_origens_com_trechos_literais():
@@ -274,6 +274,13 @@ def test_veredito_conclusivo_depende_de_duas_origens_com_trechos_literais():
     answer = tutor.validate_answer(payload, items)
     assert answer["avaliacao_evidencias"] == "EVIDENCIAS_SUFICIENTES_CONTRARIAS"
     assert len(answer["fontes"]) == 2
+    repeated = "A fonte 1 registra que o projeto X não foi aprovado."
+    items[1]["trecho"] = repeated
+    payload["evidencias_contrarias"][1] = f'Fonte [2]: “{repeated}”'
+    answer = tutor.validate_answer(payload, items)
+    assert answer["avaliacao_evidencias"] == "EVIDENCIAS_INSUFICIENTES"
+    items[1]["trecho"] = "A fonte 2 registra que o projeto X não foi aprovado."
+    payload["evidencias_contrarias"][1] = 'Fonte [2]: “A fonte 2 registra que o projeto X não foi aprovado.”'
     items[1]["grupo_origem"] = "origem-a"
     answer = tutor.validate_answer(payload, items)
     assert answer["avaliacao_evidencias"] == "EVIDENCIAS_INSUFICIENTES"

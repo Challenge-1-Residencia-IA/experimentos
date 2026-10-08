@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
 import socket
 from concurrent.futures import ThreadPoolExecutor
@@ -16,6 +17,7 @@ import requests
 import trafilatura
 from ddgs import DDGS
 from pypdf import PdfReader
+from dotenv import load_dotenv
 
 from rag.corpus import chunks, stable_id
 from rag.relevance import relevance
@@ -158,6 +160,47 @@ class WebResearcher:
         self.pages: dict[str, dict] = {}
         self.searches: dict[str, list[dict]] = {}
         self.answer_cache: dict[tuple[str, str, str], tuple[float, dict, list[dict]]] = {}
+        self.fact_check_cache: dict[str, tuple[list[dict], str]] = {}
+
+    def fact_checks(self, query: str) -> tuple[list[dict], str]:
+        """Consulta checagens publicadas; resultado é candidato, não prova automática."""
+        if query in self.fact_check_cache:
+            return self.fact_check_cache[query]
+        load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+        key = os.getenv("FACT_CHECK_API_KEY", "").strip()
+        if not key or key.casefold() in {"sua_chave_aqui", "your_api_key", "..."}:
+            result = ([], "chave_nao_configurada")
+        else:
+            try:
+                response = requests.get(
+                    "https://factchecktools.googleapis.com/v1alpha1/claims:search",
+                    params={"query": query[:300], "languageCode": "pt", "pageSize": 10, "key": key},
+                    timeout=(5, 10),
+                )
+                response.raise_for_status()
+                checks = []
+                for claim in response.json().get("claims", []):
+                    if not isinstance(claim, dict):
+                        continue
+                    for review in claim.get("claimReview", []):
+                        if not isinstance(review, dict) or not review.get("url"):
+                            continue
+                        checks.append({
+                            "alegacao_checada": claim.get("text", ""),
+                            "titulo": review.get("title", ""),
+                            "url": review["url"],
+                            "veiculo": review.get("publisher", {}).get("name", ""),
+                            "avaliacao_do_veiculo": review.get("textualRating", ""),
+                            "data_revisao": review.get("reviewDate", ""),
+                        })
+                result = (checks, "ok")
+            except requests.RequestException as error:
+                status = getattr(getattr(error, "response", None), "status_code", None)
+                result = ([], f"http_{status}" if status else type(error).__name__)
+            except (ValueError, TypeError, AttributeError, KeyError):
+                result = ([], "resposta_invalida")
+        self.fact_check_cache[query] = result
+        return result
 
     def page(self, url: str) -> dict:
         if url not in self.pages:
@@ -225,7 +268,8 @@ class WebResearcher:
                         continue
                     groups.add(page["origin_group"])
                     documents.append(page)
-                    if matches_domain(page["url"], preferred):
+                    if (matches_domain(page["url"], preferred) and
+                            relevance(query, page["title"], page["text"][:1200])[0] == "direta"):
                         diagnostics["fontes_qualificadas"] += 1
         diagnostics["paginas_lidas"] = len(documents)
         return documents, diagnostics

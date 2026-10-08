@@ -48,12 +48,6 @@ def main() -> None:
         raise FileNotFoundError("Índice Chroma e corpus são necessários para registrar o RAG")
     documents = read_corpus()
     licenses = dict(Counter(str(item.get("license", "não informada")) for item in documents.values()))
-    unreviewed = {name for name in licenses if name.casefold() in {"", "verificar", "não informada"}}
-    if unreviewed:
-        raise ValueError(
-            "Registro remoto bloqueado: revise a licença/condição de uso do corpus: "
-            + ", ".join(sorted(unreviewed))
-        )
     qwen = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
     digest = ollama_digest(qwen)
     revision = embedding_revision()

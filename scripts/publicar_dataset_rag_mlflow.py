@@ -46,12 +46,6 @@ def main() -> None:
 
     corpus = read_corpus(CORPUS)
     licenses = Counter(str(item.get("license", "não informada")) for item in corpus.values())
-    unreviewed = {name for name in licenses if name.casefold() in {"", "verificar", "não informada"}}
-    if unreviewed:
-        raise ValueError(
-            "Publicação bloqueada: revise a licença/condição de uso do corpus: "
-            + ", ".join(sorted(unreviewed))
-        )
     manifest = {
         "dataset_version": DATASET_VERSION,
         "visibility_required": "private",

@@ -13,9 +13,10 @@ import requests
 from dotenv import load_dotenv
 
 from rag.corpus import ROOT
+from rag.claims import ambiguous_compound, split_claims
 from rag.dagshub_tracking import REGISTERED_MODEL_NAME, configure_tracking, contract_fingerprint, git_revision, matching_model_version
 from rag.relevance import relevance
-from rag.store import VectorStore
+from rag.store import VectorStore, create_vector_store
 from rag.web import repair_mojibake
 
 SYSTEM_PROMPT = (ROOT / "prompts" / "tutora_rag.txt").read_text(encoding="utf-8")
@@ -28,7 +29,7 @@ EVALUATION_DESCRIPTIONS = {
     "NAO_APLICAVEL": "🔘 Não aplicável (sem alegação factual verificável)",
 }
 EVALUATIONS = set(EVALUATION_DESCRIPTIONS)
-RESPONSE_VERSION = "analise-evidencias-v5"
+RESPONSE_VERSION = "analise-evidencias-v6"
 
 VERDICT_TEXTS = {
     "EVIDENCIAS_CONFLITANTES": (
@@ -99,12 +100,13 @@ def ask(
     generation_diagnostics: dict | None = None,
     pipeline_started: float | None = None,
     result_items: list[dict] | None = None,
+    inconclusive_reason: str | None = None,
 ) -> dict:
     started = pipeline_started if pipeline_started is not None else time.perf_counter()
     load_dotenv(ROOT / ".env")
     retrieval_started = time.perf_counter()
     if evidence is None or teaching is None:
-        store = store or VectorStore()
+        store = store or create_vector_store()
     if evidence is None:
         evidence = store.search(question, "evidencia", limit=6, max_per_source=2)
     if teaching is None:
@@ -136,7 +138,7 @@ def ask(
             "grupo_origem": canonical_origin_group(metadata["origin_group"]),
             "url": metadata["url"],
             "data": metadata.get("published_at", ""),
-            "qualificada": metadata.get("conclusive_eligible", True),
+            "qualificada": metadata.get("conclusive_eligible", False),
             "trecho": repair_mojibake(item["text"]),
             "distancia_vetorial": item.get("distance"),
             "relevancia": level,
@@ -166,6 +168,8 @@ def ask(
     payload = None
     local_repairs = 0
     try:
+        if inconclusive_reason:
+            raise ValueError(inconclusive_reason)
         if not direct_items:
             raise ValueError("Nenhuma fonte diretamente alinhada à alegação foi recuperada")
         payload = ollama_json(SYSTEM_PROMPT, prompt, ANSWER_SCHEMA, model_name=model_name)
@@ -181,6 +185,8 @@ def ask(
         first_valid = False
         validation_errors.append(str(error))
         answer = safe_fallback(question, items)
+        if inconclusive_reason:
+            answer["veredito"] = inconclusive_reason
         repaired = False
         fallback = True
     generation_s = time.perf_counter() - generation_started
@@ -231,7 +237,7 @@ def safe_fallback(question: str, items: list[dict]) -> dict:
         "evidencias_contrarias": [],
         **explanation,
         "avaliacao_evidencias": "EVIDENCIAS_INSUFICIENTES",
-        "achados": _literal_findings(items),
+        "achados": _unverified_findings(items),
     }
     return validate_answer(payload, items)
 
@@ -249,15 +255,15 @@ def _safe_explanation(items: list[dict]) -> dict:
     if found:
         context = (
             f"Foram encontradas {len(found)} fontes; {len(direct)} {direct_verb} "
-            "correspondência direta no título com os elementos da alegação. Os trechos abaixo "
-            "são excertos dessas páginas, não uma confirmação independente."
+            "correspondência direta com os elementos da alegação. As páginas listadas "
+            "abaixo foram consultadas, mas não são uma confirmação independente."
         )
         attention = [
-            "A correspondência do título com a pergunta não confirma, por si só, o conteúdo da página."
+            "A correspondência com a pergunta não confirma, por si só, o conteúdo da página."
         ] if direct else []
         limitations = (
-            f"Origens qualificadas com título diretamente alinhado: {len(qualified_groups)}. "
-            "Duas origens independentes com trechos verificáveis no mesmo "
+            f"Origens qualificadas com trechos diretamente alinhados: {len(qualified_groups)}. "
+            "Duas origens independentes com trechos distintos e verificáveis no mesmo "
             "sentido são necessárias para uma conclusão. A classificação automática de "
             "relevância não substitui a conferência das páginas originais."
         )
@@ -283,7 +289,7 @@ def _safe_explanation(items: list[dict]) -> dict:
 
 
 def repair_evidence_labels(payload: dict, items: list[dict]) -> int:
-    """Remove rótulos soltos e preserva os achados literais sem inferir polaridade."""
+    """Remove rótulos soltos sem inferir polaridade."""
     repaired = 0
     for field in ("evidencias_favoraveis", "evidencias_contrarias"):
         values = payload.get(field)
@@ -316,8 +322,8 @@ def _literal_excerpt(value: str, limit: int = 320) -> str:
     return excerpt
 
 
-def _literal_findings(items: list[dict], limit: int = 4) -> list[str]:
-    """Resume o fallback com excertos literais, sem convertê-los em conclusão."""
+def _unverified_findings(items: list[dict], limit: int = 4) -> list[str]:
+    """Mostra páginas encontradas sem amplificar uma alegação não verificada."""
     findings = []
     ranked = sorted(
         (item for item in items if item["tipo"] == "evidencia"),
@@ -327,10 +333,10 @@ def _literal_findings(items: list[dict], limit: int = 4) -> list[str]:
     for item in ranked:
         if item.get("relevancia") == "nao_relacionada":
             continue
-        excerpt = _literal_excerpt(item.get("trecho", ""))
-        if not excerpt:
-            continue
-        findings.append(f'Fonte [{item["numero"]}] — {item["titulo"]}: “{excerpt}”')
+        findings.append(
+            f'Fonte [{item["numero"]}] — página {item.get("relevancia", "direta")} encontrada; '
+            "conteúdo não validado como prova. Consulte o link abaixo."
+        )
         if len(findings) >= limit:
             break
     return findings
@@ -465,6 +471,41 @@ def _local_evidence(store: VectorStore, claim: str, excluded_groups: set[str]) -
 def ask_online(message: str, researcher, store: VectorStore | None = None,
                history: list[dict] | None = None, *, track: bool = True,
                model_name: str | None = None) -> dict:
+    """Analisa orações separáveis isoladamente; nunca conclui pelo conjunto."""
+    from rag.web import split_input
+
+    _text, url = split_input(message)
+    claims = [message.strip()] if url else split_claims(message)
+    if len(claims) == 1:
+        reason = (
+            "A pergunta parece reunir alegações diferentes, mas não conseguimos separá-las "
+            "com segurança. Envie cada afirmação isoladamente para receber um veredito."
+            if not url and ambiguous_compound(message) else None
+        )
+        return _ask_online_single(message, researcher, store, history, track=track,
+                                  model_name=model_name, inconclusive_reason=reason)
+    store = store or create_vector_store()
+    analyses = [_ask_online_single(claim, researcher, store, history, track=track,
+                                   model_name=model_name) for claim in claims]
+    return {
+        "afirmacao": message.strip(),
+        "alegacoes_separadas": claims,
+        "analises": analyses,
+        "avaliacao_evidencias": "EVIDENCIAS_INSUFICIENTES",
+        "veredito": "A pergunta contém alegações diferentes. Veja o resultado de cada uma; "
+                    "não há um veredito único para a frase inteira.",
+        "contexto": "Cada alegação foi pesquisada separadamente para evitar misturar fontes.",
+        "limitacoes": "A separação automática deve ser conferida se a frase tiver sentido ambíguo.",
+        "fontes": [source for analysis in analyses for source in analysis["fontes"]],
+        "fontes_encontradas": [source for analysis in analyses
+                              for source in analysis["fontes_encontradas"]],
+    }
+
+
+def _ask_online_single(message: str, researcher, store: VectorStore | None = None,
+               history: list[dict] | None = None, *, track: bool = True,
+               model_name: str | None = None,
+               inconclusive_reason: str | None = None) -> dict:
     """Pesquisa páginas atuais, seleciona trechos e gera a resposta educativa."""
     from rag.web import passages, split_input
 
@@ -525,13 +566,43 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
     else:
         search_query = claim
     research_started = time.perf_counter()
+    check_method = getattr(researcher, "fact_checks", None)
+    if callable(check_method):
+        checks, check_status = check_method(claim)
+    else:
+        checks, check_status = [], "indisponivel"
     pages, diagnostics = researcher.research(
         search_query,
         exclude_url=publication["url"] if publication else None,
         exclude_group=page["origin_group"] if publication else None,
     )
+    # A API descobre checagens, mas sua avaliação textual não vira prova por si.
+    # Só o conteúdo efetivamente lido pode entrar no fluxo de passagens.
+    read_check_pages = 0
+    page_method = getattr(researcher, "page", None)
+    seen_urls = {item["url"] for item in pages}
+    if callable(page_method):
+        for check in checks[:2]:
+            check_url = check["url"]
+            if check_url in seen_urls or check_url == (publication or {}).get("url"):
+                continue
+            if relevance(claim, check.get("alegacao_checada", "") + " " +
+                         check.get("titulo", ""), "")[0] == "nao_relacionada":
+                continue
+            try:
+                check_page = page_method(check_url)
+            except Exception:
+                continue
+            if check_page["origin_group"] in {item["origin_group"] for item in pages}:
+                continue
+            pages.append(check_page)
+            seen_urls.add(check_url)
+            read_check_pages += 1
+    diagnostics.update({"fact_check_api": check_status,
+                        "checagens_retornadas": len(checks),
+                        "paginas_checagem_lidas": read_check_pages})
     research_s = time.perf_counter() - research_started
-    store = store or VectorStore()
+    store = store or create_vector_store()
     evidence = passages(claim, pages, store.encoder)
     web_groups = {item["metadata"]["origin_group"] for item in evidence}
     local = _local_evidence(store, claim, web_groups | ({page["origin_group"]} if publication else set()))
@@ -544,7 +615,9 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
                  model_name=model_name,
                  pipeline_started=pipeline_started,
                  result_items=result_items,
+                 inconclusive_reason=inconclusive_reason,
                  tracking_context={"modo": "web", "pesquisa_web": diagnostics,
+                                   "checagens_candidatas": checks,
                                    "publicacao_enviada": publication,
                                    "metricas_execucao": {
                                        "latencia_pesquisa_web_s": research_s,
@@ -553,6 +626,7 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
     answer["alegacao_verificada"] = claim
     answer["fonte_enviada"] = publication
     answer["pesquisa_web"] = diagnostics
+    answer["checagens_encontradas"] = checks
     answer["fontes_consultadas"] = answer["fontes_encontradas"] + answer["fontes_descartadas"]
     if cache is not None:
         if len(cache) >= 128:
@@ -566,6 +640,22 @@ def cited_numbers(value: str) -> set[int]:
     for match in re.finditer(r"\[([\d,\s]+)\]", value):
         numbers.update(int(piece.strip()) for piece in match.group(1).split(",") if piece.strip())
     return numbers
+
+
+def _explicit_refutation(quote: str, claim: str) -> bool:
+    """Trava de alta precisão para desmentidos citados como apoio."""
+    normalized = unicodedata.normalize("NFKD", quote.casefold())
+    normalized = "".join(char for char in normalized if not unicodedata.combining(char))
+    claim_normalized = unicodedata.normalize("NFKD", claim.casefold())
+    claim_normalized = "".join(char for char in claim_normalized if not unicodedata.combining(char))
+    if re.search(r"\b(?:nao|nunca|jamais|not|never)\b", claim_normalized):
+        return False
+    return bool(re.search(
+        r"\b(?:e falso que|informacao falsa|noticia falsa|boato(?:s)?(?: de morte)?|"
+        r"desmentid[oa]|hoax|false claim|did not die|is alive|"
+        r"nao (?:morreu|faleceu|foi|esta|houve|ocorreu|aprovou|"
+        r"matou|recebeu|puxou|tem|vai))\b", normalized
+    ))
 
 
 def validate_answer(payload: dict, items: list[dict]) -> dict:
@@ -596,10 +686,15 @@ def validate_answer(payload: dict, items: list[dict]) -> dict:
             source_text = re.sub(r"\s+", " ", source["trecho"] + " " + source["titulo"]).casefold()
             if not quotation or re.sub(r"\s+", " ", quotation.group(1)).casefold() not in source_text:
                 raise ValueError(f"{field} não contém trecho literal verificável na fonte")
+            if field == "evidencias_favoraveis" and _explicit_refutation(
+                quotation.group(1), payload["afirmacao"]
+            ):
+                raise ValueError("Um desmentido não pode ser classificado como evidência favorável")
     # A lista declarada pelo modelo não basta: uma fonte só é usada quando [n]
     # aparece de fato no texto validado.
     payload["fontes_usadas"] = sorted(cited_in_text)
     groups_by_side = []
+    quotes_by_side = []
     for field in ("evidencias_favoraveis", "evidencias_contrarias"):
         groups_by_side.append({
             canonical_origin_group(items[index - 1]["grupo_origem"])
@@ -607,18 +702,24 @@ def validate_answer(payload: dict, items: list[dict]) -> dict:
             for index in cited_numbers(value)
             if items[index - 1]["qualificada"]
         })
+        quotes_by_side.append({
+            re.sub(r"\s+", " ", re.search(r'[“\"]([^”\"]{12,})[”\"]', value).group(1)).casefold()
+            for value in payload[field]
+            for index in cited_numbers(value)
+            if items[index - 1]["qualificada"]
+        })
     if groups_by_side[0] and groups_by_side[1]:
         evaluation = "EVIDENCIAS_CONFLITANTES"
-    elif len(groups_by_side[0]) >= 2:
+    elif len(groups_by_side[0]) >= 2 and len(quotes_by_side[0]) >= 2:
         evaluation = "EVIDENCIAS_SUFICIENTES_FAVORAVEIS"
-    elif len(groups_by_side[1]) >= 2:
+    elif len(groups_by_side[1]) >= 2 and len(quotes_by_side[1]) >= 2:
         evaluation = "EVIDENCIAS_SUFICIENTES_CONTRARIAS"
     else:
         evaluation = "EVIDENCIAS_INSUFICIENTES"
     payload["avaliacao_evidencias"] = evaluation
     payload.update(_safe_explanation(items))
     if not cited_in_text:
-        payload["achados"] = _literal_findings(items)
+        payload["achados"] = _unverified_findings(items)
     else:
         payload.pop("achados", None)
     cited = set(payload["fontes_usadas"])

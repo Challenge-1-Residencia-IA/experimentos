@@ -74,8 +74,12 @@ em `data/candidatas_checagens.jsonl`; ele não indexa o conteúdo dessas página
 Essa chave deve ser uma chave de API de um projeto Google Cloud com a
 **Fact Check Tools API** ativada. Se a API responder HTTP 400 ou 403, o comando
 mostra a mensagem devolvida pelo Google para ajudar a identificar chave
-inválida, API não ativada ou restrições da chave. A opção 3 do menu, para
-conversar e analisar links com pesquisa na web, não usa essa chave.
+inválida, API não ativada ou restrições da chave. A opção 3 também consulta
+a API quando a chave está configurada. Checagens candidatas são mostradas com
+alegação, veículo, avaliação publicada, data e URL; a avaliação do veículo
+não vira veredito automático. Quando possível, a página é lida pelo fluxo
+normal. Falha ou ausência de resultados da API aparece no diagnóstico sem
+impedir a pesquisa web comum.
 Revise a fonte, a licença e a origem das evidências antes de adicioná-las ao
 arquivo de fontes. A avaliação de um veículo não substitui uma checagem
 independente da alegação.
@@ -87,7 +91,7 @@ o estado local e reúne coleta, indexação, conversa, descoberta de checagens e
 avaliação. Para incluir os guias educativos locais, use a opção 1 com
 `sources.json` e a opção 2 para indexar. A opção 3 já pode pesquisar na web
 com o índice vazio; ela abre uma conversa contínua até digitar `sair`.
-Ao abrir essa opção, o programa também coleta e indexa automaticamente as
+Com Chroma local, ao abrir essa opção o programa também coleta e indexa automaticamente as
 fontes de `sources.json` se passaram 24 horas desde a última atualização, se
 a configuração mudou ou se o conteúdo de uma fonte local foi editado. Se a
 coleta falhar, a conversa continua com as
@@ -95,7 +99,8 @@ fontes disponíveis e a próxima abertura tenta novamente. Essa atualização
 acontece enquanto o menu é usado; não há um serviço rodando com o programa
 fechado. O arquivo `data/rag_auto_refresh.json` guarda o horário da última
 atualização concluída. As opções 1 e 2 continuam disponíveis para uma
-atualização imediata.
+atualização imediata. Com Neon, a opção 3 não atualiza o índice compartilhado;
+use a opção 2 em um computador responsável pela atualização.
 
 O arquivo atual não inclui feeds remotos. Para adicionar um, verifique antes as
 condições de acesso e uso e agrupe publicações da mesma origem factual sob o
@@ -120,12 +125,17 @@ Perguntas educativas podem receber `NAO_APLICAVEL` no campo de veredito.
 O arquivo `web_sources.json` lista domínios que podem contribuir para um
 veredito conclusivo. A lista é uma triagem inicial, não uma certificação de
 verdade. A validação ainda exige duas origens qualificadas, distintas e
-citadas. Outros sites podem aparecer como contexto, mas sozinhos não permitem
+citadas com trechos não idênticos. Outros sites podem aparecer como contexto, mas sozinhos não permitem
 um veredito conclusivo. Domínios em `blocked_automated_domains` não são
 baixados; revise as condições de acesso antes de alterar essa lista. Quando
 um link não puder ser lido, a tutora informa a falha ou a quantidade de
 páginas ignoradas. A coleta pontual da conversa não adiciona páginas ao
 índice permanente.
+
+Perguntas com duas orações separáveis são pesquisadas e apresentadas por
+alegação, sem um veredito único para a frase inteira. Se houver duas ações
+aparentes mas a separação não for segura, o sistema mantém o resultado
+inconclusivo e pede cada alegação isoladamente.
 
 Na opção 3, a pesquisa faz uma segunda consulta com termos de checagem quando
 a primeira não traz duas origens qualificadas. Ela combina os trechos das
@@ -138,11 +148,11 @@ sustentaram uma conclusão. O domínio de uma fonte é apenas uma triagem:
 duas páginas que repetem a mesma apuração não devem contar como confirmação
 independente, mesmo quando aparecem em veículos diferentes.
 
-O contrato `analise-evidencias-v5` ordena primeiro as fontes cujo título ou
+O contrato `analise-evidencias-v6` ordena primeiro as fontes cujo título ou
 uma frase do trecho contém os elementos da alegação. Apenas essas fontes
 diretas entram no contexto factual enviado ao Qwen. As relacionadas continuam
-na lista de URLs mostradas ao usuário; as não relacionadas ficam somente no
-rastreio técnico como descartadas quando há fontes pertinentes. Se nenhuma
+na lista de URLs mostradas ao usuário; as não relacionadas também são
+mostradas separadamente como páginas consultadas, nunca como prova. Se nenhuma
 fonte pertinente for encontrada, a resposta explica que as páginas lidas não
 respondem à alegação e mostra seus links separadamente, identificados como
 consultados sobre outros assuntos, nunca como prova a favor ou contra.
@@ -150,6 +160,11 @@ O Qwen retorna trechos literais com uma citação cada. O código descarta a
 saída se a alegação mudar ou se um trecho não existir na fonte. Contexto,
 limitações e veredito são gerados pelo código. O tempo total registrado no
 MLflow inclui a pesquisa web, a seleção de trechos e a geração.
+Um desmentido explícito não pode ser citado como apoio à alegação. Quando
+nenhum trecho foi validado, o fallback mostra as páginas encontradas e seus
+links, mas não reproduz automaticamente o texto de uma página que pode estar
+repetindo um boato. O rastreio registra checagens candidatas e motivo do
+fallback para auditoria.
 Perguntas idênticas com o mesmo histórico recente reutilizam a resposta por
 até 10 minutos durante a mesma conversa; o acerto de cache é registrado no
 MLflow. A busca e as páginas também ficam em cache durante a sessão.
@@ -183,11 +198,15 @@ O coletor grava `data/documents.jsonl`, com URL, título, origem, data de coleta
 licença e hash do conteúdo. Também preserva em `data/raw/` uma cópia de cada
 arquivo baixado, identificada pelo hash dos bytes originais. A indexação guarda vetores no
 `vector_store/chroma/`, em coleções separadas. Esses diretórios são locais e
-ignorados pelo Git. Reexecutar coleta e indexação atualiza documentos
+ignorados pelo Git. Opcionalmente, `VECTOR_BACKEND=neon` usa PostgreSQL com
+pgvector; consulte o [guia do Neon](NEON_VECTOR_STORE.md). Reexecutar coleta e
+indexação atualiza documentos
 alterados e pula documentos iguais. A coleta não apaga automaticamente itens
 removidos do arquivo de fontes. Para retirar uma fonte, remova a linha
 correspondente de `data/documents.jsonl` e execute a indexação novamente;
-os trechos ausentes do corpus serão eliminados do índice.
+os trechos ausentes do corpus serão eliminados do índice Chroma local. No Neon,
+documentos remotos ausentes do corpus local não são apagados automaticamente,
+para evitar perda de dados entre computadores.
 
 Uma avaliação `EVIDENCIAS_SUFICIENTES_FAVORAVEIS` ou
 `EVIDENCIAS_SUFICIENTES_CONTRARIAS` exige duas origens qualificadas,

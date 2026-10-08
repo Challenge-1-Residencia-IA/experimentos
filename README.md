@@ -14,6 +14,8 @@ O fluxo atual é um **RAG** (*Retrieval-Augmented Generation*): o modelo Qwen n�
 é retreinado quando o corpus muda. Novos documentos são convertidos em
 embeddings, salvos no ChromaDB e enviados ao modelo como contexto no momento da
 consulta.
+Opcionalmente, a busca vetorial pode usar Neon/PostgreSQL com `pgvector` no
+lugar do Chroma local.
 
 ## Sumário
 
@@ -69,7 +71,7 @@ prova de que uma alegação específica ocorreu.
 ```mermaid
 flowchart TD
     U[Usuário envia pergunta, alegação ou link] --> I[Interpretar a entrada]
-    I --> L[Buscar evidências no ChromaDB local]
+    I --> L[Buscar evidências no índice configurado: Chroma ou Neon]
     I --> W{Modo web?}
     W -- Sim --> S[Pesquisar e ler páginas atuais]
     W -- Não --> C[Usar somente o contexto local]
@@ -88,7 +90,7 @@ flowchart TD
 ```
 
 Na busca vetorial, cada texto e cada pergunta são convertidos em vetores pelo
-`intfloat/multilingual-e5-small`. O ChromaDB usa distância de cosseno: **quanto
+`intfloat/multilingual-e5-small`. Ambos os índices usam distância de cosseno: **quanto
 menor a distância, mais próximo semanticamente o trecho está da consulta**.
 Uma distância pequena indica semelhança textual ou semântica; sozinha, ela não
 prova relevância factual nem qualidade da fonte.
@@ -100,7 +102,7 @@ prova relevância factual nem qualidade da fonte.
 | Modelo gerador | `qwen2.5:7b` | Ollama na máquina do usuário |
 | Pesos do Qwen | Ollama | Cache local do Ollama; não ficam no Git |
 | Modelo de embeddings | `intfloat/multilingual-e5-small` | Cache local do Hugging Face |
-| Banco vetorial | ChromaDB | `vector_store/chroma/` |
+| Banco vetorial | ChromaDB local (padrão) ou Neon/pgvector | `vector_store/chroma/` ou PostgreSQL remoto |
 | Corpus normalizado | JSONL | `data/documents.jsonl` |
 | Prompt principal | Texto versionado | `prompts/tutora_rag.txt` |
 | Validação da resposta | Python | `rag/tutor.py` |
@@ -205,12 +207,16 @@ FACT_CHECK_API_KEY=
 |---|---:|---|
 | `OLLAMA_MODEL` | não | Modelo gerador; padrão `qwen2.5:7b` |
 | `OLLAMA_URL` | não | Endpoint da API local do Ollama |
+| `VECTOR_BACKEND` | não | `chroma` local (padrão) ou `neon` compartilhado |
+| `NEON_DATABASE_URL` | para Neon | URL privada do PostgreSQL Neon |
+| `NEON_TRANSPORT` | para Neon | `tcp` (padrão) ou `https` quando 5432 estiver bloqueada |
+| `NEON_VECTOR_NAMESPACE` | não | Isola os vetores deste RAG no Neon |
 | `MLFLOW_EXPERIMENT_NAME` | não | Nome do experimento; padrão `NexoVerdict-RAG` |
 | `MLFLOW_TRACKING_URI` | não | Substitui o banco MLflow local padrão |
 | `MLFLOW_TRACKING_USERNAME` | para DagsHub | Usuário do DagsHub |
 | `MLFLOW_TRACKING_PASSWORD` | para DagsHub | Token de acesso do DagsHub |
 | `DAGSHUB_REPO` | para DagsHub | Repositório no formato `usuario/repositorio` |
-| `FACT_CHECK_API_KEY` | somente opção 4 | Google Fact Check Tools API |
+| `FACT_CHECK_API_KEY` | opção 4 e checagens candidatas na opção 3 | Google Fact Check Tools API |
 
 Nunca coloque token, senha ou conteúdo real do `.env` em commits, prints,
 issues ou mensagens.
@@ -367,7 +373,7 @@ evidências externas.
 | Opção | Ação | Resultado |
 |---:|---|---|
 | 1 | Coletar documentos | Normaliza as fontes de `sources.json` no corpus |
-| 2 | Atualizar banco vetorial | Gera embeddings e atualiza o ChromaDB |
+| 2 | Atualizar banco vetorial | Gera embeddings e atualiza Chroma ou Neon, conforme o `.env` |
 | 3 | Conversar com a tutora | Pede o nome do experimento e inicia conversa local + web |
 | 4 | Descobrir checagens | Salva URLs candidatas para revisão humana |
 | 5 | Avaliar recuperação | Mede Hit@K e MRR com URLs esperadas |
@@ -378,7 +384,7 @@ evidências externas.
 | 10 | Integrar novos datasets | Fluxo experimental para datasets adicionais |
 | 11 | Teste temporário | Usa um banco MLflow descartável |
 | 12 | Testar versão registrada | Carrega uma versão do Registry do DagsHub |
-| 13 | Publicar no DagsHub | Publica modelo, datasets ou ambos |
+| 13 | Publicar no DagsHub | Modelo, datasets, ambos, experimentos locais ou tudo |
 | 14 | Ver DagsHub | Mostra a URL do servidor remoto |
 | 0 | Sair | Encerra o programa |
 
@@ -386,6 +392,9 @@ Ao abrir a opção 3, o projeto pede o nome do experimento MLflow e verifica se
 `sources.json` mudou ou se a última atualização ocorreu há mais de 24 horas.
 Quando necessário, coleta as fontes e atualiza o índice. Isso atualiza
 documentos e embeddings; não treina o Qwen.
+Esse refresh automático vale para o Chroma local. Com `VECTOR_BACKEND=neon`,
+a base compartilhada é atualizada somente pela opção 2; veja o
+[guia do Neon](docs/NEON_VECTOR_STORE.md).
 
 ## Referência de comandos
 
@@ -552,7 +561,7 @@ apresentados ao RAG como evidência factual confiável.
 
 ## Formato da resposta
 
-O contrato atual é `analise-evidencias-v5`. A interface apresenta:
+O contrato atual é `analise-evidencias-v6`. A interface apresenta:
 
 ```text
 ANÁLISE
@@ -565,8 +574,8 @@ Não há fontes suficientes para confirmar ou refutar esta afirmação. Abaixo
 está o que foi encontrado, sem transformar informações incompletas em uma
 conclusão.
 
-O que foi encontrado (quando não há citação literal validada):
-• Trechos literais das fontes recuperadas, claramente separados de uma conclusão.
+Páginas encontradas (quando não há citação literal validada):
+• Links consultados, sem reproduzir automaticamente um possível boato como prova.
 
 Evidências favoráveis:
 • Evidência factual citada e ligada a uma fonte.
@@ -735,6 +744,12 @@ Cada colega configura seu próprio usuário e token no `.env`.
 
 ### Sincronizar os runs locais atuais
 
+Na opção 13 do menu, escolha `experimentos` para listar e sincronizar todos os
+experimentos locais com runs; escolha `tudo` para incluir também modelo e
+datasets. `ambos` continua significando somente modelo + datasets. O menu
+mostra a quantidade de runs e pede confirmação antes de enviar os experimentos.
+Runs já sincronizados não são duplicados.
+
 Primeiro, veja o que seria enviado:
 
 ```bash
@@ -763,10 +778,12 @@ python -m scripts.sincronizar_runs_mlflow_dagshub \
   --experiment-name NexoVerdict-RAG
 ```
 
-O sincronizador reconhece runs enviados pela tag `source_local_run_id`. Use
-`--force` somente para criar outra cópia. Por segurança de licença, ele envia
-métricas, histórico, parâmetros, tags e um resumo; não envia artefatos que
-possam conter texto do corpus.
+O comando acima, sem `--experiment-name`, seleciona somente `NexoVerdict-RAG`;
+repita-o para cada outro experimento ou use a opção 13. O sincronizador
+reconhece runs enviados pela tag `source_local_run_id`. Use `--force` somente
+para criar outra cópia. Ele envia métricas, histórico, parâmetros, tags e um
+resumo; não envia artefatos que possam conter texto do corpus. Revise
+parâmetros e tags se puderem conter dados sensíveis.
 
 ### Versionar o contrato de resposta
 
@@ -788,8 +805,11 @@ O registro exige:
 - corpus e ChromaDB presentes;
 - Ollama ativo e modelo instalado;
 - revisão local identificável do modelo de embeddings;
-- credenciais do DagsHub;
-- licença ou condição de uso revisada para todos os documentos.
+- credenciais do DagsHub.
+
+O registro empacota o corpus e o índice vetorial. O campo `license` é mantido
+no manifesto, mas não bloqueia o envio; confirme separadamente se há permissão
+para armazenar cada conjunto no DagsHub antes de executar o comando.
 
 O nome registrado é `NexoVerdict-RAG-Analise-Evidencias`.
 
@@ -799,9 +819,9 @@ O nome registrado é `NexoVerdict-RAG-Analise-Evidencias`.
 python -m scripts.publicar_dataset_rag_mlflow
 ```
 
-O publicador cria um manifesto com hashes, tamanhos, quantidades e licenças. Se
-algum documento tiver `license=verificar`, `não informada` ou vazia, a
-publicação será bloqueada. Isso é intencional.
+O publicador envia os arquivos de dataset e cria um manifesto com hashes,
+tamanhos, quantidades e valores de `license`. Valores como `verificar` não
+impedem o envio e não significam que a autorização de uso foi confirmada.
 
 ### Testar uma versão registrada
 
@@ -962,7 +982,8 @@ Se estiver usando o dataset preparado, execute o conversor antes da indexação.
 ### A pesquisa web não encontrou fontes
 
 A busca depende de serviços externos. Sites podem bloquear automação, remover
-páginas ou responder lentamente. O sistema continua com o índice local e deve
+páginas ou responder lentamente. O sistema continua com o índice vetorial
+configurado e deve
 explicitar a limitação na resposta.
 
 `web_sources.json` contém domínios aptos a contribuir para análises mais fortes
@@ -982,11 +1003,12 @@ grep '^MLFLOW_TRACKING_PASSWORD=' .env
 Cada colaborador deve usar seu próprio token. Se ele tiver sido exposto,
 revogue-o no DagsHub e gere outro.
 
-### Publicação bloqueada por `license=verificar`
+### Corpus com `license=verificar`
 
-Confirme a licença ou condição de uso na origem do dataset. Depois reconverta o
-corpus com o valor correto. Essa pendência não impede a sincronização apenas das
-métricas e dos parâmetros dos runs locais.
+O código não bloqueia a publicação por esse valor. Confirme a licença ou
+condição de uso na origem antes de enviar o corpus ou o índice; se não houver
+permissão para armazená-los remotamente, sincronize apenas métricas e parâmetros
+dos runs locais.
 
 ### Downloads do Hugging Face falham, mas o modelo já está em cache
 
@@ -1014,6 +1036,7 @@ Esse modo só funciona quando todos os arquivos necessários já estão no cache
 ## Documentação complementar
 
 - [Tutora RAG](docs/RAG_TUTORA.md): detalhes técnicos e protocolo de uso.
+- [Banco vetorial Neon](docs/NEON_VECTOR_STORE.md): configuração do índice compartilhado.
 - [Plano de conversão](docs/PLANO_CONVERSAO_DATASET_RAG.md): decisões sobre as
   visões do dataset.
 - [Versionamento no DagsHub](docs/VERSIONAMENTO_DAGSHUB.md): autenticação,
@@ -1024,5 +1047,5 @@ Esse modo só funciona quando todos os arquivos necessários já estão no cache
   históricos e limitações.
 
 Alguns documentos registram experimentos anteriores. Em caso de diferença, o
-contrato `analise-evidencias-v5`, este README e o código atual do branch
+contrato `analise-evidencias-v6`, este README e o código atual do branch
 `feat/rag` descrevem o fluxo em uso.

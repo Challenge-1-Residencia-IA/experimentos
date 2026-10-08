@@ -3,7 +3,10 @@ chromadb
 ddgs
 feedparser
 mlflow
+neon-serverless==0.1.0
+pgvector
 pypdf
+psycopg[binary]
 python-dotenv
 requests
 rich

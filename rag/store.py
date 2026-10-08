@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
 import chromadb
+from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
 from rag.corpus import CORPUS, ROOT, chunks, read_corpus, stable_id
@@ -12,6 +14,26 @@ from rag.corpus import CORPUS, ROOT, chunks, read_corpus, stable_id
 STORE = ROOT / "vector_store" / "chroma"
 MODEL = "intfloat/multilingual-e5-small"
 COLLECTIONS = {"evidencia": "evidencias", "educativo": "materiais_educativos"}
+
+
+def create_vector_store(*, backend: str | None = None):
+    """Seleciona o índice usado pela tutora sem alterar os fluxos Chroma explícitos."""
+    load_dotenv(ROOT / ".env")
+    selected = (backend or os.getenv("VECTOR_BACKEND", "chroma")).strip().casefold()
+    if selected == "chroma":
+        return VectorStore()
+    if selected == "neon":
+        transport = os.getenv("NEON_TRANSPORT", "tcp").strip().casefold()
+        if transport == "https":
+            from rag.neon_http_store import NeonHttpVectorStore
+
+            return NeonHttpVectorStore()
+        if transport == "tcp":
+            from rag.neon_store import NeonVectorStore
+
+            return NeonVectorStore()
+        raise ValueError("NEON_TRANSPORT deve ser 'tcp' ou 'https'")
+    raise ValueError("VECTOR_BACKEND deve ser 'chroma' ou 'neon'")
 
 
 class VectorStore:

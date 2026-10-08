@@ -15,7 +15,7 @@ import requests
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import IntPrompt, Prompt
+from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 from rich.text import Text
 
@@ -137,10 +137,13 @@ def index() -> None:
     if not CORPUS.exists():
         console.print("[yellow]O corpus ainda não existe. Use a opção 1 primeiro.[/yellow]")
         return
-    from rag.store import VectorStore
+    from rag.store import create_vector_store
 
     with console.status("Gerando embeddings e atualizando o índice...", spinner="dots"):
-        counts = VectorStore().index()
+        store = create_vector_store()
+        if hasattr(store, "initialize"):
+            store.initialize()
+        counts = store.index()
     console.print(
         f"[green]Índice atualizado.[/green] {counts['indexed']} documentos indexados, "
         f"{counts['unchanged']} sem mudança, {counts['removed_chunks']} trechos antigos removidos."
@@ -150,6 +153,12 @@ def index() -> None:
 def render_answer(answer: dict) -> None:
     from rag.tutor import EVALUATION_DESCRIPTIONS, VERDICT_TEXTS
 
+    if answer.get("analises"):
+        console.print(Panel(Text(answer["veredito"]), title="Pergunta composta", border_style="yellow"))
+        for number, analysis in enumerate(answer["analises"], 1):
+            console.print(f"[bold cyan]Alegação {number}[/bold cyan]")
+            render_answer(analysis)
+        return
     console.print("[bold]ANÁLISE[/bold]")
     console.print(Panel(Text(answer["afirmacao"]), title="Afirmação", border_style="cyan"))
     verdict = answer.get("veredito") or VERDICT_TEXTS[answer["avaliacao_evidencias"]]
@@ -159,7 +168,7 @@ def render_answer(answer: dict) -> None:
     if answer.get("achados"):
         console.print(Panel(
             Text("\n\n".join(f"• {value}" for value in answer["achados"])),
-            title="O que foi encontrado (trechos literais, não validados como conclusão)",
+            title="Páginas encontradas (conteúdo não validado como prova)",
             border_style="cyan",
         ))
     for title, key, color in (("Evidências favoráveis", "evidencias_favoraveis", "green"),
@@ -202,7 +211,7 @@ def render_answer(answer: dict) -> None:
                            "nao_relacionada": "Outra"}.get(source.get("relevancia"), "—"),
                           source["origem"], source["titulo"], source["url"])
         console.print(table)
-    if not found and answer.get("fontes_descartadas"):
+    if answer.get("fontes_descartadas"):
         console.print("[yellow]As páginas abaixo foram consultadas, mas não respondem à alegação; não são prova a favor nem contra.[/yellow]")
         table = Table(title="Páginas consultadas sobre outros assuntos", show_lines=True)
         table.add_column("Origem")
@@ -211,6 +220,16 @@ def render_answer(answer: dict) -> None:
         for source in answer["fontes_descartadas"]:
             table.add_row(source["origem"], source["titulo"], source["url"])
         console.print(table)
+    if answer.get("checagens_encontradas"):
+        table = Table(title="Checagens candidatas da Fact Check API (não são veredito automático)", show_lines=True)
+        table.add_column("Veículo")
+        table.add_column("Alegação checada")
+        table.add_column("Avaliação publicada")
+        table.add_column("URL", overflow="fold")
+        for check in answer["checagens_encontradas"][:5]:
+            table.add_row(check["veiculo"], check["alegacao_checada"],
+                          check["avaliacao_do_veiculo"], check["url"])
+        console.print(table)
     console.print(Text(answer["limite_da_validacao"], style="dim"))
     research = answer.get("pesquisa_web")
     if research is not None:
@@ -218,6 +237,9 @@ def render_answer(answer: dict) -> None:
                       f"{research['paginas_lidas']} páginas lidas; "
                       f"{research.get('fontes_qualificadas', 0)} fontes qualificadas; "
                       f"{research.get('evidencias_locais', 0)} evidências locais.[/dim]")
+        if research.get("fact_check_api"):
+            console.print(f"[dim]Fact Check API: {research['fact_check_api']}; "
+                          f"{research.get('checagens_retornadas', 0)} checagens candidatas.[/dim]")
         if research.get("erro_busca"):
             error = research["erro_busca"]
             if "No results found" in error:
@@ -242,25 +264,32 @@ def talk() -> None:
 
 def _talk() -> None:
     from rag.auto_refresh import refresh_if_due
-    from rag.store import VectorStore
+    from rag.store import create_vector_store
     from rag.tutor import ask_online
     from rag.web import WebResearcher
 
-    store = VectorStore()
-    try:
-        with console.status("Atualizando fontes e banco vetorial, se necessário...", spinner="dots"):
-            refresh = refresh_if_due(store, default_config())
-        if refresh is not None:
-            collected = refresh["collected"]
-            console.print(
-                f"[green]Base atualizada:[/green] {collected['new']} novos, "
-                f"{collected['updated']} alterados, {collected['failed']} falhas."
-            )
-            if collected["failed"]:
-                console.print("[yellow]Algumas fontes falharam; a próxima conversa tentará novamente.[/yellow]")
-    except Exception as error:
-        console.print(f"[yellow]Atualização automática indisponível: {error}. "
-                      "A conversa continuará com as fontes disponíveis.[/yellow]")
+    store = create_vector_store()
+    if hasattr(store, "initialize"):
+        evidence_count = store.count("evidencia")
+        educational_count = store.count("educativo")
+        console.print(f"[dim]Índice Neon compartilhado: {evidence_count} trechos de evidência, "
+                      f"{educational_count} educativos. Atualize pela opção 2, "
+                      "não durante cada conversa.[/dim]")
+    else:
+        try:
+            with console.status("Atualizando fontes e banco vetorial, se necessário...", spinner="dots"):
+                refresh = refresh_if_due(store, default_config())
+            if refresh is not None:
+                collected = refresh["collected"]
+                console.print(
+                    f"[green]Base atualizada:[/green] {collected['new']} novos, "
+                    f"{collected['updated']} alterados, {collected['failed']} falhas."
+                )
+                if collected["failed"]:
+                    console.print("[yellow]Algumas fontes falharam; a próxima conversa tentará novamente.[/yellow]")
+        except Exception as error:
+            console.print(f"[yellow]Atualização automática indisponível: {error}. "
+                          "A conversa continuará com as fontes disponíveis.[/yellow]")
     researcher = WebResearcher()
     history: list[dict] = []
     console.print("[dim]Envie uma pergunta, alegação ou link. Digite 'sair' para voltar ao menu.[/dim]")
@@ -322,6 +351,7 @@ def evaluate() -> None:
 
 
 def status() -> None:
+    load_dotenv(ROOT / ".env")
     counts = corpus_counts()
     table = Table(title="Estado local")
     table.add_column("Item")
@@ -329,7 +359,15 @@ def status() -> None:
     table.add_row("Configuração", str(default_config()))
     table.add_row("Guias educativos", str(counts["educativo"]))
     table.add_row("Documentos de evidência", str(counts["evidencia"]))
-    table.add_row("Banco vetorial", "presente" if INDEX.exists() else "ainda não criado")
+    backend = os.getenv("VECTOR_BACKEND", "chroma").strip().casefold()
+    if backend == "neon":
+        transport = os.getenv("NEON_TRANSPORT", "tcp").strip().casefold()
+        vector_state = (f"Neon via {transport}; use a opção 2 para criar/atualizar o índice"
+                        if os.getenv("NEON_DATABASE_URL", "").strip()
+                        else "Neon selecionado, mas NEON_DATABASE_URL não está definido")
+    else:
+        vector_state = "Chroma local presente" if INDEX.exists() else "Chroma local ainda não criado"
+    table.add_row("Banco vetorial", vector_state)
     table.add_row("Checagens candidatas", "presente" if CANDIDATES.exists() else "nenhuma")
     benchmark_cases = ROOT / "data" / "benchmark_averitec" / "casos.jsonl"
     table.add_row("Benchmark AVeriTeC", "preparado" if benchmark_cases.exists() else "ainda não preparado")
@@ -409,12 +447,12 @@ def temporary_test() -> None:
     if not question:
         raise ValueError("Digite uma pergunta ou alegação")
 
-    from rag.store import VectorStore
+    from rag.store import create_vector_store
     from rag.tutor import ask, ask_online
     from rag.web import WebResearcher
 
     with temporary_mlflow(location) as base:
-        store = VectorStore()
+        store = create_vector_store()
         with console.status("Executando teste temporário...", spinner="dots"):
             if mode == "web":
                 answer = ask_online(question, WebResearcher(), store=store)
@@ -468,21 +506,52 @@ def test_registered_model() -> None:
 
 
 def publish_dagshub() -> None:
-    """Publica modelo, datasets ou ambos no DagsHub configurado."""
+    """Publica modelo, datasets e/ou sincroniza experimentos locais."""
     target = Prompt.ask(
-        "O que publicar?", choices=["modelo", "datasets", "ambos"], default="modelo"
+        "O que publicar?", choices=["modelo", "datasets", "ambos", "experimentos", "tudo"],
+        default="modelo",
     )
-    if target in {"modelo", "ambos"}:
+    if target in {"experimentos", "tudo"}:
+        from scripts.sincronizar_runs_mlflow_dagshub import local_experiments, sync
+
+        database = ROOT / "mlflow.db"
+        experiments = local_experiments(database)
+        if experiments:
+            table = Table(title="Experimentos locais disponíveis para sincronização")
+            table.add_column("Experimento")
+            table.add_column("Runs", justify="right")
+            table.add_column("Com métricas", justify="right")
+            for experiment in experiments:
+                table.add_row(experiment["name"], str(experiment["runs"]),
+                              str(experiment["runs_with_metrics"]))
+            console.print(table)
+            console.print("[yellow]Serão enviados métricas, parâmetros, tags e um resumo de cada run; "
+                          "os artefatos das consultas não serão copiados. Revise parâmetros e tags "
+                          "se puderem conter dados sensíveis.[/yellow]")
+            if Confirm.ask("Sincronizar esses experimentos com o DagsHub?", default=False):
+                for experiment in experiments:
+                    results = sync(database, experiment["name"], [])
+                    sent = sum(result["status"] == "enviado" for result in results)
+                    existing = sum(result["status"] == "já_sincronizado" for result in results)
+                    console.print(f"[green]{experiment['name']}:[/green] {sent} enviados, "
+                                  f"{existing} já sincronizados.")
+            else:
+                console.print("[yellow]Sincronização de experimentos cancelada.[/yellow]")
+        else:
+            console.print("[yellow]Nenhum experimento local com runs foi encontrado.[/yellow]")
+        if target == "experimentos":
+            return
+    if target in {"modelo", "ambos", "tudo"}:
         from scripts.registrar_modelo_rag_mlflow import main as register_model
 
         with console.status("Empacotando e registrando o RAG...", spinner="dots"):
             register_model()
-    if target in {"datasets", "ambos"}:
+    if target in {"datasets", "ambos", "tudo"}:
         from scripts.publicar_dataset_rag_mlflow import main as publish_datasets
 
         with console.status("Publicando datasets e manifesto...", spinner="dots"):
             publish_datasets()
-    console.print("[green]Publicação concluída no DagsHub.[/green]")
+    console.print("[green]Publicação selecionada concluída no DagsHub.[/green]")
 
 
 def integrate_datasets() -> None:
@@ -532,7 +601,7 @@ ACTIONS: dict[str, tuple[str, str, Callable[[], None]]] = {
     "10": ("Integrar novos datasets", "Baixa FakeRecogna, X-FACT, Fake.br e fragmenta textos", integrate_datasets),
     "11": ("Teste temporário", "Rastreia uma pergunta somente no MLflow local", temporary_test),
     "12": ("Testar versão registrada", "Baixa e executa uma versão do Model Registry", test_registered_model),
-    "13": ("Publicar no DagsHub", "Registra o RAG e/ou os datasets da versão atual", publish_dagshub),
+    "13": ("Publicar no DagsHub", "Modelo, datasets e/ou experimentos locais", publish_dagshub),
     "14": ("Ver DagsHub", "Mostra o painel de versões compartilhadas", show_dagshub),
 }
 

@@ -40,6 +40,23 @@ def selected_runs(client: MlflowClient, experiment_id: str, run_ids: list[str]) 
     return runs
 
 
+def local_experiments(database: Path) -> list[dict]:
+    """Lista experimentos locais com runs, sem acessar o DagsHub."""
+    if not database.is_file():
+        raise FileNotFoundError(f"Banco MLflow local não encontrado: {database}")
+    client = MlflowClient(tracking_uri=local_tracking_uri(database))
+    experiments = []
+    for experiment in client.search_experiments(view_type=ViewType.ACTIVE_ONLY, max_results=50_000):
+        runs = selected_runs(client, experiment.experiment_id, [])
+        if runs:
+            experiments.append({
+                "name": experiment.name,
+                "runs": len(runs),
+                "runs_with_metrics": sum(bool(run.data.metrics) for run in runs),
+            })
+    return sorted(experiments, key=lambda item: item["name"].casefold())
+
+
 def public_tags(tags: dict[str, str]) -> dict[str, str]:
     """Remove tags internas recriadas pelo servidor remoto."""
     return {key: value for key, value in tags.items() if not key.startswith("mlflow.")}
