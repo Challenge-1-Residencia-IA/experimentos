@@ -16,6 +16,7 @@ from rag.corpus import ROOT
 from rag.claims import ambiguous_compound, split_claims
 from rag.dagshub_tracking import REGISTERED_MODEL_NAME, configure_tracking, contract_fingerprint, git_revision, matching_model_version
 from rag.relevance import relevance
+from rag.splitter import CHUNKING_VERSION
 from rag.store import VectorStore, create_vector_store
 from rag.web import repair_mojibake
 
@@ -29,7 +30,8 @@ EVALUATION_DESCRIPTIONS = {
     "NAO_APLICAVEL": "🔘 Não aplicável (sem alegação factual verificável)",
 }
 EVALUATIONS = set(EVALUATION_DESCRIPTIONS)
-RESPONSE_VERSION = "analise-evidencias-v7"
+RESPONSE_VERSION = "analise-evidencias-v8"
+AI_NOTICE = "Sou uma IA e posso cometer erros."
 
 VERDICT_TEXTS = {
     "EVIDENCIAS_CONFLITANTES": (
@@ -141,7 +143,7 @@ def ask(
             "grupo_origem": canonical_origin_group(metadata["origin_group"]),
             "url": metadata["url"],
             "data": metadata.get("published_at", ""),
-            "qualificada": metadata.get("conclusive_eligible", False),
+            "qualificada": metadata.get("conclusive_eligible") is True,
             "trecho": repair_mojibake(item["text"]),
             "distancia_vetorial": item.get("distance"),
             "relevancia": level,
@@ -190,6 +192,7 @@ def ask(
         answer = safe_fallback(question, items)
         if inconclusive_reason:
             answer["veredito"] = inconclusive_reason
+            answer["sintese"] = inconclusive_reason
         repaired = False
         fallback = True
     generation_s = time.perf_counter() - generation_started
@@ -377,6 +380,7 @@ def _track_answer(question: str, items: list[dict], payload: dict, answer: dict,
     with mlflow.start_run(run_name="consulta-analise", nested=mlflow.active_run() is not None):
         mlflow.log_params({
             "response_version": RESPONSE_VERSION,
+            "chunking_version": CHUNKING_VERSION,
             **contract_fingerprint(SYSTEM_PROMPT, ANSWER_SCHEMA),
             "ollama_model": os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
             "git_revision": git_revision(),
@@ -482,7 +486,7 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
     if len(claims) == 1:
         reason = (
             "A pergunta parece reunir alegações diferentes, mas não conseguimos separá-las "
-            "com segurança. Envie cada afirmação isoladamente para receber um veredito."
+            "com segurança. Envie cada afirmação isoladamente para analisar suas evidências."
             if not url and ambiguous_compound(message) else None
         )
         return _ask_online_single(message, researcher, store, history, track=track,
@@ -497,6 +501,8 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
         "avaliacao_evidencias": "EVIDENCIAS_INSUFICIENTES",
         "veredito": "A pergunta contém alegações diferentes. Veja o resultado de cada uma; "
                     "não há um veredito único para a frase inteira.",
+        "sintese": "A pergunta contém alegações diferentes. Veja a análise das evidências de cada uma abaixo.",
+        "aviso_ia": AI_NOTICE,
         "contexto": "Cada alegação foi pesquisada separadamente para evitar misturar fontes.",
         "limitacoes": "A separação automática deve ser conferida se a frase tiver sentido ambíguo.",
         "fontes": [source for analysis in analyses for source in analysis["fontes"]],
@@ -556,6 +562,8 @@ def _ask_online_single(message: str, researcher, store: VectorStore | None = Non
                     "contexto": "O conteúdo enviado não apresentou uma afirmação específica para análise.",
                     "pontos_de_atencao": [], "avaliacao_evidencias": "NAO_APLICAVEL",
                     "veredito": VERDICT_TEXTS["NAO_APLICAVEL"],
+                    "sintese": "Não identificamos uma afirmação factual específica para analisar neste conteúdo.",
+                    "aviso_ia": AI_NOTICE,
                     "limitacoes": "A extração automática da alegação pode precisar de revisão.",
                     "fontes": [], "fontes_encontradas": [], "fontes_usadas": [],
                     "fonte_enviada": publication, "pesquisa_web": None,
@@ -663,6 +671,41 @@ def _explicit_refutation(quote: str, claim: str) -> bool:
     ))
 
 
+def evidence_synthesis(payload: dict) -> str:
+    """Expõe a direção dos trechos validados sem converter contagens em verdade."""
+    favorable = payload["evidencias_favoraveis"]
+    contrary = payload["evidencias_contrarias"]
+    def references(values):
+        return " ".join(f"[{number}]" for number in sorted(
+            set().union(*(cited_numbers(value) for value in values))))
+    if favorable and contrary:
+        return (
+            f"Encontramos trechos que sustentam a afirmação {references(favorable)} e trechos "
+            f"que a contradizem {references(contrary)}. Há uma divergência concreta nas fontes "
+            "consultadas; a quantidade de páginas de cada lado não resolve essa diferença. "
+            "É necessário comparar datas, contexto e a evidência original de cada relato."
+        )
+    if not favorable and not contrary:
+        return payload["veredito"]
+    values = favorable or contrary
+    direction = "sustentam" if favorable else "contradizem"
+    other = "contradigam" if favorable else "sustentem"
+    summary = (
+        f"Os trechos selecionados {references(values)} {direction} a afirmação. "
+        f"Nesta análise, não foram validados trechos que a {other}. "
+    )
+    if payload["avaliacao_evidencias"] == "EVIDENCIAS_INSUFICIENTES":
+        return summary + (
+            "Essa é a direção do material encontrado, mas ainda falta corroborá-la com "
+            "trechos distintos de pelo menos duas origens qualificadas e independentes. "
+            "Isso limita a força da análise, sem apagar o que essas fontes dizem."
+        )
+    return summary + (
+        "Há convergência entre trechos de origens qualificadas distintas. A análise se limita "
+        "ao material consultado; datas, contexto e independência das apurações precisam ser considerados."
+    )
+
+
 def validate_answer(payload: dict, items: list[dict]) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("O modelo não retornou um objeto JSON")
@@ -724,7 +767,7 @@ def validate_answer(payload: dict, items: list[dict]) -> dict:
             for index in cited_numbers(value)
             if items[index - 1]["qualificada"]
         })
-    if groups_by_side[0] and groups_by_side[1]:
+    if payload["evidencias_favoraveis"] and payload["evidencias_contrarias"]:
         evaluation = "EVIDENCIAS_CONFLITANTES"
     elif len(groups_by_side[0]) >= 2 and len(quotes_by_side[0]) >= 2:
         evaluation = "EVIDENCIAS_SUFICIENTES_FAVORAVEIS"
@@ -749,7 +792,7 @@ def validate_answer(payload: dict, items: list[dict]) -> dict:
         )
     elif evaluation == "EVIDENCIAS_CONFLITANTES":
         payload["contexto"] = (
-            "Há trechos de fontes qualificadas classificados em sentidos opostos. "
+            "Há trechos validados classificados em sentidos opostos, mesmo que nem todas as fontes sejam qualificadas. "
             "Compare as evidências favoráveis e contrárias abaixo; esta busca não resolve a divergência."
         )
     if not cited_in_text:
@@ -775,6 +818,16 @@ def validate_answer(payload: dict, items: list[dict]) -> dict:
         )
     else:
         payload["veredito"] = VERDICT_TEXTS[evaluation]
+    payload["sintese"] = evidence_synthesis(payload)
+    # Compatibilidade com consumidores antigos; o texto agora é análise descritiva.
+    payload["veredito"] = payload["sintese"]
+    payload["aviso_ia"] = AI_NOTICE
+    if cited_in_text and evaluation == "EVIDENCIAS_INSUFICIENTES":
+        payload["contexto"] = (
+            "Os trechos abaixo foram conferidos nas fontes citadas e classificados conforme "
+            "sua relação com a afirmação. A correspondência literal não comprova a exatidão "
+            "da fonte nem garante a interpretação automática."
+        )
     payload["limite_da_validacao"] = (
         "A validação confere formato, referências e diversidade declarada de origens; "
         "o suporte factual das citações requer avaliação humana."

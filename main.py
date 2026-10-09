@@ -151,18 +151,19 @@ def index() -> None:
 
 
 def render_answer(answer: dict) -> None:
-    from rag.tutor import EVALUATION_DESCRIPTIONS, VERDICT_TEXTS
+    from rag.tutor import AI_NOTICE, EVALUATION_DESCRIPTIONS, VERDICT_TEXTS
 
     if answer.get("analises"):
-        console.print(Panel(Text(answer["veredito"]), title="Pergunta composta", border_style="yellow"))
+        console.print(Panel(Text(answer.get("sintese") or answer["veredito"]), title="Pergunta composta", border_style="yellow"))
         for number, analysis in enumerate(answer["analises"], 1):
             console.print(f"[bold cyan]Alegação {number}[/bold cyan]")
             render_answer(analysis)
         return
     console.print("[bold]ANÁLISE[/bold]")
     console.print(Panel(Text(answer["afirmacao"]), title="Afirmação", border_style="cyan"))
-    verdict = answer.get("veredito") or VERDICT_TEXTS[answer["avaliacao_evidencias"]]
-    console.print(Panel(Text(verdict), title="Veredito", border_style="yellow"))
+    verdict = answer.get("sintese") or answer.get("veredito") or VERDICT_TEXTS[answer["avaliacao_evidencias"]]
+    console.print(Panel(Text(verdict), title="O que as fontes indicam", border_style="yellow"))
+    console.print(Text(answer.get("aviso_ia") or AI_NOTICE, style="dim"))
     if answer.get("fonte_enviada"):
         console.print(f"[dim]Publicação enviada: {answer['fonte_enviada']['url']}[/dim]")
     if answer.get("achados"):

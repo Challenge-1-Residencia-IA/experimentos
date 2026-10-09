@@ -8,6 +8,7 @@ from pathlib import Path
 
 from rag.corpus import CORPUS, chunks, read_corpus, stable_id
 from rag.neon_store import EMBEDDING_DIMENSION, METADATA_FIELDS, TABLE, NeonVectorStore
+from rag.index_metadata import index_metadata
 from rag.store import COLLECTIONS
 
 
@@ -110,7 +111,7 @@ class NeonHttpVectorStore(NeonVectorStore):
                 "document_id": document_id,
                 "chunk_index": 0,
                 "content_hash": document["content_hash"],
-                **{field: document.get(field, "") for field in METADATA_FIELDS},
+                **index_metadata(document),
             }
             if old and {row["content_hash"] for row in old} == {document["content_hash"]} and all(
                 all(row["metadata"].get(field) == metadata[field] for field in METADATA_FIELDS)

@@ -91,6 +91,7 @@ def test_indexacao_neon_altera_so_documento_do_namespace(monkeypatch):
             "id": "doc", "kind": "evidencia", "content_hash": "hash",
             "text": "Trecho para indexar.", "source": "Fonte", "origin_group": "grupo",
             "title": "Título", "url": "https://exemplo.org", "published_at": "",
+            "conclusive_eligible": True,
         }
     })
 
@@ -102,3 +103,6 @@ def test_indexacao_neon_altera_so_documento_do_namespace(monkeypatch):
     assert "namespace = %s AND kind = %s AND document_id = %s" in deletes[0][0]
     assert deletes[0][1] == ("nexoverdict-rag", "evidencia", "doc")
     assert any("INSERT INTO" in sql for sql, _params in connection.statements)
+    params = next(params for sql, params in connection.statements if "INSERT INTO" in sql)
+    assert params[7].obj["conclusive_eligible"] is True
+    assert params[7].obj["chunking_version"] == neon_store.index_metadata({})["chunking_version"]

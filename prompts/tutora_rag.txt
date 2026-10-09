@@ -15,4 +15,6 @@ Formato único:
   "evidencias_contrarias": []
 }
 
-O sistema montará contexto, fontes, limitações e veredito após validar as citações. Não acrescente outros campos.
+Se uma passagem sustenta ou contradiz diretamente a afirmação, inclua-a no lado correspondente, mesmo que seja a única fonte ou que `qualificada` seja false. Qualificação e quantidade limitam a força da análise; não apagam o conteúdo encontrado. Quando houver passagens nos dois sentidos, preserve ambos: quantidade de páginas não decide quem está certo. Não confunda ausência de informação com contradição.
+
+O sistema montará uma síntese explícita do que os trechos sustentam ou contradizem, as fontes, as limitações e o aviso de IA após validar as citações. Não dará um rótulo de verdadeiro/falso. Não acrescente outros campos.

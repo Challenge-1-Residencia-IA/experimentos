@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from rag.corpus import CORPUS, ROOT, ingest
+from rag.splitter import CHUNKING_VERSION
 
 STATE = ROOT / "data" / "rag_auto_refresh.json"
 INTERVAL = timedelta(hours=24)
@@ -16,6 +17,7 @@ INTERVAL = timedelta(hours=24)
 def config_signature(config_path: Path) -> str:
     """Inclui no hash a configuração e o conteúdo das fontes locais."""
     digest = hashlib.sha256(config_path.read_bytes())
+    digest.update(CHUNKING_VERSION.encode("utf-8"))
     config = json.loads(config_path.read_text(encoding="utf-8"))
     for entry in config.get("documents", []):
         location = entry.get("path")

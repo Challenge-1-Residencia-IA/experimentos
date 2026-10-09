@@ -18,6 +18,7 @@ from rag.corpus import CORPUS, ROOT
 from rag.dagshub_tracking import REGISTERED_MODEL_NAME, configure_tracking, contract_fingerprint, matching_model_version
 from rag.store import MODEL, STORE, VectorStore
 from rag.metrics import citation_metrics
+from rag.splitter import CHUNKING_VERSION
 from rag.tutor import SYSTEM_PROMPT, ANSWER_SCHEMA, EVALUATIONS, RESPONSE_VERSION, ask
 
 DEFAULT_CASES = ROOT / "data" / "avaliacao" / "casos.jsonl"
@@ -194,6 +195,7 @@ def evaluate(
             "retrieval_only": retrieval_only,
             **contract_fingerprint(SYSTEM_PROMPT, ANSWER_SCHEMA),
             "response_version": RESPONSE_VERSION,
+            "chunking_version": CHUNKING_VERSION,
             "git_revision": git_revision(),
         })
         version = matching_model_version(contract_fingerprint(SYSTEM_PROMPT, ANSWER_SCHEMA)["contract_sha256"], file_hash(corpus_path))

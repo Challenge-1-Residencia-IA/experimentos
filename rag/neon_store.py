@@ -11,13 +11,10 @@ from sentence_transformers import SentenceTransformer
 
 from rag.corpus import CORPUS, ROOT, chunks, read_corpus, stable_id
 from rag.store import COLLECTIONS, MODEL
+from rag.index_metadata import METADATA_FIELDS, index_metadata
 
 EMBEDDING_DIMENSION = 384
 TABLE = "nexoverdict_rag_chunks"
-METADATA_FIELDS = (
-    "kind", "source", "origin_group", "title", "url", "published_at",
-    "natureza", "license", "dataset_name",
-)
 
 
 class _CollectionCount:
@@ -154,7 +151,7 @@ class NeonVectorStore:
                     "document_id": document_id,
                     "chunk_index": 0,
                     "content_hash": document["content_hash"],
-                    **{field: document.get(field, "") for field in METADATA_FIELDS},
+                    **index_metadata(document),
                 }
                 if old and {row[1] for row in old} == {document["content_hash"]} and all(
                     all(row[2].get(field) == metadata[field] for field in METADATA_FIELDS)

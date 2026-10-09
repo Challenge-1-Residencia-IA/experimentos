@@ -1,13 +1,14 @@
-"""Divisor recursivo inteligente de texto para RAG de alta qualidade."""
+"""Fragmentação em intervalos literais com limite e sobreposição explícitos."""
 
 from __future__ import annotations
 
 import argparse
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+
+CHUNKING_VERSION = "literal-windows-v2-180w-30overlap"
 
 # Expressões regulares comuns de ruído em notícias e páginas brasileiras
 NOISE_PATTERNS = [
@@ -38,38 +39,22 @@ def clean_document_text(text: str) -> str:
 
 @dataclass
 class RecursiveTextSplitter:
-    """Divide textos longos respeitando a hierarquia semântica e sintática.
-    
-    Tenta quebrar em:
-    1. Seções de Markdown / Títulos (##, ###)
-    2. Parágrafos duplos (\\n\\n)
-    3. Quebras de linha (\\n)
-    4. Sentenças completas (. ! ?)
-    5. Orações / pontuação intermediária (; :)
-    6. Palavras (espaço)
-    
-    Isso impede que orações, números estatísticos ou citações fiquem partidos ao meio.
+    """Preserva intervalos do texto e prefere fins de frase/parágrafo.
+
+    O nome público é mantido por compatibilidade. Frases maiores que o limite
+    precisam ser divididas, mas sua pontuação e suas palavras são preservadas.
     """
 
     chunk_size: int = 180  # em palavras por padrão (compatível com modelos de embedding como E5)
     chunk_overlap: int = 35
-    min_chunk_size: int = 25  # mínimo de palavras para evitar chunks sem conteúdo
+    min_chunk_size: int = 25  # compatibilidade; não permite ultrapassar o limite
     unit: str = "words"  # "words" ou "characters"
-    separators: list[str] = field(
-        default_factory=lambda: [
-            "\n# ",
-            "\n## ",
-            "\n### ",
-            "\n\n",
-            "\n",
-            ". ",
-            "! ",
-            "? ",
-            "; ",
-            ", ",
-            " ",
-        ]
-    )
+
+    def __post_init__(self):
+        if self.unit not in {"words", "characters"}:
+            raise ValueError("unit deve ser words ou characters")
+        if self.chunk_size <= 0 or not 0 <= self.chunk_overlap < self.chunk_size:
+            raise ValueError("Exige chunk_size > 0 e 0 <= chunk_overlap < chunk_size")
 
     def _length(self, text: str) -> int:
         if self.unit == "characters":
@@ -88,9 +73,6 @@ class RecursiveTextSplitter:
         if not cleaned:
             return []
 
-        raw_chunks = self._recursive_split(cleaned, self.separators)
-        merged = self._merge_splits(raw_chunks)
-
         results = []
         context_prefix = ""
         if inject_context and (title or source):
@@ -100,85 +82,40 @@ class RecursiveTextSplitter:
             if source:
                 parts.append(f"Fonte: {source.strip()}")
             context_prefix = f"[{' | '.join(parts)}]\n"
-
-        for piece in merged:
-            piece = piece.strip()
-            if self._length(piece) < self.min_chunk_size and results:
-                # Se for muito pequeno, acopla ao chunk anterior se possível
-                results[-1] = (results[-1] + " " + piece).strip()
-                continue
+        budget = self.chunk_size - self._length(context_prefix)
+        if budget <= self.chunk_overlap:
+            raise ValueError("O contexto ocupa o espaço reservado ao conteúdo do trecho")
+        for piece in self._literal_windows(cleaned, budget):
             if piece:
                 chunk_str = f"{context_prefix}{piece}" if context_prefix else piece
                 results.append(chunk_str)
 
         return results if results else [cleaned]
 
-    def _recursive_split(self, text: str, separators: list[str]) -> list[str]:
-        final_chunks = []
-        separator = separators[-1]
-        new_separators = []
-
-        for i, sep in enumerate(separators):
-            if sep == "":
-                separator = ""
+    def _literal_windows(self, text: str, budget: int) -> list[str]:
+        """Recorta intervalos contíguos sem apagar pontuação ou duplicar junções."""
+        spans = [(match.start(), match.end()) for match in re.finditer(r"\S+", text)]
+        if self.unit == "characters":
+            spans = [(i, i + 1) for i in range(len(text))]
+        result = []
+        start = 0
+        while start < len(spans):
+            end = min(start + budget, len(spans))
+            if end < len(spans) and self.unit == "words":
+                floor = start + max(self.chunk_overlap + 1, budget // 2)
+                for boundary in range(end, floor - 1, -1):
+                    token = text[spans[boundary - 1][0]:spans[boundary - 1][1]]
+                    gap = text[spans[boundary - 1][1]:spans[boundary][0]]
+                    if re.search(r'[.!?][”\"\')]*$', token) or "\n\n" in gap:
+                        end = boundary
+                        break
+            piece = text[spans[start][0]:spans[end - 1][1]].strip()
+            if piece:
+                result.append(piece)
+            if end == len(spans):
                 break
-            if sep in text:
-                separator = sep
-                new_separators = separators[i + 1:]
-                break
-
-        splits = text.split(separator) if separator else list(text)
-
-        good_splits = []
-        for s in splits:
-            if not s:
-                continue
-            if self._length(s) < self.chunk_size:
-                good_splits.append(s)
-            else:
-                if good_splits:
-                    final_chunks.extend(self._merge_splits(good_splits, separator=separator))
-                    good_splits = []
-                if not new_separators:
-                    final_chunks.append(s)
-                else:
-                    sub_chunks = self._recursive_split(s, new_separators)
-                    final_chunks.extend(sub_chunks)
-
-        if good_splits:
-            final_chunks.extend(self._merge_splits(good_splits, separator=separator))
-
-        return final_chunks
-
-    def _merge_splits(self, splits: Sequence[str], separator: str = " ") -> list[str]:
-        docs = []
-        current_doc: list[str] = []
-        total = 0
-
-        for s in splits:
-            s_len = self._length(s)
-            if total + s_len > self.chunk_size:
-                if total > 0:
-                    doc = separator.join(current_doc).strip()
-                    if doc:
-                        docs.append(doc)
-                    # Cria overlap preservando os últimos elementos
-                    while total > self.chunk_overlap and current_doc:
-                        removed = current_doc.pop(0)
-                        total -= self._length(removed)
-                current_doc = [s]
-                total = s_len
-            else:
-                current_doc.append(s)
-                total += s_len
-
-        if current_doc:
-            doc = separator.join(current_doc).strip()
-            if doc:
-                docs.append(doc)
-
-        return docs
-
+            start = end - self.chunk_overlap
+        return result
 
 def split_large_text(
     text: str,

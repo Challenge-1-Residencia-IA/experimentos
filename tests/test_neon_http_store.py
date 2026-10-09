@@ -81,7 +81,8 @@ def test_https_indexa_documento_em_lote_atomico(monkeypatch):
     monkeypatch.setattr(neon_http_store, "read_corpus", lambda _path: {
         "doc": {"id": "doc", "kind": "evidencia", "content_hash": "hash",
                 "text": "Trecho para indexar.", "source": "Fonte", "origin_group": "grupo",
-                "title": "Título", "url": "https://exemplo.org", "published_at": ""}
+                "title": "Título", "url": "https://exemplo.org", "published_at": "",
+                "conclusive_eligible": True}
     })
     counts = remote.index()
     assert counts["indexed"] == 1
@@ -92,6 +93,8 @@ def test_https_indexa_documento_em_lote_atomico(monkeypatch):
     assert "$8::jsonb" in batch[1][0]
     assert "$10::vector" in batch[1][0]
     assert json.loads(batch[1][1][7])["document_id"] == "doc"
+    assert json.loads(batch[1][1][7])["conclusive_eligible"] is True
+    assert json.loads(batch[1][1][7])["chunking_version"] == neon_http_store.index_metadata({})["chunking_version"]
     assert len(json.loads(batch[1][1][9])) == 384
 
 

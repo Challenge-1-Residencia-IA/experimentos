@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
 from rag.corpus import CORPUS, ROOT, chunks, read_corpus, stable_id
+from rag.index_metadata import index_metadata
 
 STORE = ROOT / "vector_store" / "chroma"
 MODEL = "intfloat/multilingual-e5-small"
@@ -63,13 +64,10 @@ class VectorStore:
             old = collection.get(where={"document_id": document_id}, include=["metadatas"])
             hashes = {item.get("content_hash") for item in old.get("metadatas", [])}
             old_metadata = old.get("metadatas") or []
-            current_metadata = old_metadata[0] if old_metadata else {}
-            metadata_unchanged = all(
-                current_metadata.get(field) == document.get(field, "")
-                for field in (
-                    "kind", "source", "origin_group", "title", "url", "published_at",
-                    "natureza", "license", "dataset_name",
-                )
+            expected_metadata = index_metadata(document)
+            metadata_unchanged = bool(old_metadata) and all(
+                current.get(field) == value
+                for current in old_metadata for field, value in expected_metadata.items()
             )
             if hashes == {document["content_hash"]} and old["ids"] and metadata_unchanged:
                 counts["unchanged"] += 1
@@ -97,6 +95,7 @@ class VectorStore:
                     "dataset_name": document.get("dataset_name", ""),
                     "content_hash": document["content_hash"],
                     "chunk_index": index,
+                    **expected_metadata,
                 }
                 for index in range(len(parts))
             ]

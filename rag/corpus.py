@@ -191,6 +191,7 @@ def ingest(config_path: Path, corpus_path: Path = CORPUS) -> dict[str, int]:
                 entry.get("published_at") or detected_date,
                 entry.get("license", "verificar"),
                 citation_url,
+                entry.get("conclusive_eligible") is True,
             )
             previous_metadata = (
                 previous.get("kind"),
@@ -200,6 +201,7 @@ def ingest(config_path: Path, corpus_path: Path = CORPUS) -> dict[str, int]:
                 previous.get("published_at", ""),
                 previous.get("license", "verificar"),
                 previous.get("url"),
+                previous.get("conclusive_eligible") is True,
             ) if previous else None
             if previous and previous["content_hash"] == digest and previous_metadata == metadata:
                 counts["unchanged"] += 1
@@ -216,6 +218,7 @@ def ingest(config_path: Path, corpus_path: Path = CORPUS) -> dict[str, int]:
                 "collected_at": datetime.now(timezone.utc).isoformat(),
                 "license": entry.get("license", "verificar"),
                 "content_hash": digest,
+                "conclusive_eligible": entry.get("conclusive_eligible") is True,
                 "raw_path": raw_path,
                 "text": text,
             }
