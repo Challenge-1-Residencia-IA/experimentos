@@ -239,3 +239,15 @@ def test_nemo_integracao_com_o_qwen(mensagem, bloqueada, monkeypatch):
          if m["name"].startswith("qwen2.5")), "qwen2.5:7b"))
     camada_nemo.carregar_rails.cache_clear()
     assert verificar_entrada_completa(mensagem).permitida is not bloqueada
+
+
+def test_nemo_funciona_dentro_de_um_event_loop(rails_falso_nemo):
+    """Em Jupyter, FastAPI ou LangGraph assíncrono já há um loop rodando; o NeMo não pode cair no fallback."""
+    import asyncio
+
+    async def dentro_do_loop():
+        return verificar_entrada_completa("por favor bloquear esta pergunta curta")
+
+    decisao = asyncio.run(dentro_do_loop())
+    assert decisao.motivo == "fora_do_escopo"
+    assert not any(s.startswith("nemo_indisponivel") for s in decisao.sinais)

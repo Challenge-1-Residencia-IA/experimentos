@@ -13,8 +13,10 @@ A resposta continua sendo gerada pela tutora; os guardrails de saída ficam em `
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 
@@ -26,6 +28,9 @@ CONFIG = Path(__file__).resolve().parent / "nemo"
 # por engano 1 a 2, sempre textos longos; com este limite, 0 de 70 legítimas foram bloqueadas.
 LIMITE_PALAVRAS_LLM = 30
 LINK = re.compile(r"https?://")
+# O `check` síncrono do NeMo falha se já houver um event loop rodando na thread (Jupyter, FastAPI,
+# LangGraph assíncrono). Nesses casos, a verificação roda nesta thread dedicada, que mantém o próprio loop.
+_THREAD_NEMO = ThreadPoolExecutor(max_workers=1, thread_name_prefix="nemo")
 
 
 def _verificar_entrada_deterministica(context: dict | None = None) -> dict:
@@ -60,8 +65,17 @@ def verificar_entrada_nemo(mensagem: str) -> DecisaoEntrada:
         return decisao  # já recusada pelos padrões: o NeMo chegaria ao mesmo resultado sem o LLM
     if len(decisao.mensagem.split()) > LIMITE_PALAVRAS_LLM or LINK.search(decisao.mensagem):
         return decisao
-    resultado = carregar_rails().check([{"role": "user", "content": decisao.mensagem}],
-                                       rail_types=[RailType.INPUT])
+    mensagens = [{"role": "user", "content": decisao.mensagem}]
+    try:
+        asyncio.get_running_loop()
+        dentro_de_loop = True
+    except RuntimeError:
+        dentro_de_loop = False
+    if dentro_de_loop:
+        resultado = _THREAD_NEMO.submit(
+            lambda: carregar_rails().check(mensagens, rail_types=[RailType.INPUT])).result()
+    else:
+        resultado = carregar_rails().check(mensagens, rail_types=[RailType.INPUT])
     if resultado.status == RailStatus.BLOCKED:
         return DecisaoEntrada(False, decisao.mensagem, "fora_do_escopo",
                               [*decisao.sinais, f"nemo:{resultado.rail}"])
