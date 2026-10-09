@@ -9,4 +9,4 @@ description = "Preparação de dados e EDA dos datasets do Challenge 1"
 requires-python = ">=3.11,<3.14"
 
 [tool.setuptools]
-packages = ["dados"]
+packages = ["dados", "avaliacao", "guardrails", "rag"]
