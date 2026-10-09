@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from rag.corpus import CORPUS, ROOT
 from rag.dagshub_tracking import REGISTERED_MODEL_NAME, configure_tracking, contract_fingerprint, matching_model_version
 from rag.store import MODEL, STORE, VectorStore
+from rag.metrics import citation_metrics
 from rag.tutor import SYSTEM_PROMPT, ANSWER_SCHEMA, EVALUATIONS, RESPONSE_VERSION, ask
 
 DEFAULT_CASES = ROOT / "data" / "avaliacao" / "casos.jsonl"
@@ -60,6 +61,8 @@ def git_revision() -> str:
 
 def summarize(details: list[dict], *, retrieval_only: bool = False) -> dict[str, float]:
     total = len(details)
+    if not total:
+        raise ValueError("Nenhum caso para avaliar")
     completed = [item for item in details if item["erro"] is None]
     valid = [item for item in completed if item["resposta"] is not None]
     labeled = [item for item in valid if item["avaliacao_revisada"] is not None]
@@ -83,7 +86,13 @@ def summarize(details: list[dict], *, retrieval_only: bool = False) -> dict[str,
             len({source["grupo_origem"] for source in item["resposta"]["fontes"]
                  if source["tipo"] == "evidencia"}) for item in valid
         ) / len(valid)
-        metrics["taxa_citacoes_validas"] = 1.0
+        citations = [citation_metrics(item["resposta"]["fontes"], item["resposta"]) for item in valid]
+        evaluated = sum(item["citacoes_avaliadas"] for item in citations)
+        resolved = sum(item["citacoes_resolvidas"] for item in citations)
+        metrics["citacoes_avaliadas"] = evaluated
+        metrics["taxa_respostas_com_citacoes"] = sum(item["resposta_com_citacoes"] for item in citations) / len(valid)
+        if evaluated:
+            metrics["taxa_citacoes_validas"] = resolved / evaluated
         for evaluation in sorted(EVALUATIONS):
             count = sum(item["avaliacao_evidencias"] == evaluation for item in valid)
             key = evaluation.casefold()
@@ -99,6 +108,37 @@ def summarize(details: list[dict], *, retrieval_only: bool = False) -> dict[str,
                 item["avaliacao_evidencias"] == item["avaliacao_revisada"]
                 for item in expected_abstention
             ) / len(expected_abstention)
+    reviewed = [item for item in details if item.get("avaliacao_revisada") is not None]
+    metrics["casos_revisados_total"] = float(len(reviewed))
+    metrics["casos_sem_gabarito_avaliacao"] = float(total - len(reviewed))
+    if reviewed and not retrieval_only:
+        def prediction(item):
+            return item.get("avaliacao_evidencias") if item["erro"] is None else None
+
+        metrics["concordancia_total_revisada"] = sum(
+            prediction(item) == item["avaliacao_revisada"] for item in reviewed
+        ) / len(reviewed)
+        active = {item["avaliacao_revisada"] for item in reviewed} | {
+            prediction(item) for item in reviewed if prediction(item) in EVALUATIONS
+        }
+        scores = []
+        for label in sorted(active):
+            tp = sum(prediction(item) == label == item["avaliacao_revisada"] for item in reviewed)
+            predicted = sum(prediction(item) == label for item in reviewed)
+            support = sum(item["avaliacao_revisada"] == label for item in reviewed)
+            precision = tp / predicted if predicted else 0.0
+            recall = tp / support if support else 0.0
+            f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+            scores.append(f1)
+            metrics.update({f"precision_{label.lower()}": precision,
+                            f"recall_{label.lower()}": recall,
+                            f"f1_{label.lower()}": f1})
+        metrics["f1_macro_avaliacao"] = sum(scores) / len(scores)
+        conclusive = {"EVIDENCIAS_SUFICIENTES_FAVORAVEIS", "EVIDENCIAS_SUFICIENTES_CONTRARIAS"}
+        metrics["taxa_conclusao_incorreta_revisada"] = sum(
+            prediction(item) in conclusive and prediction(item) != item["avaliacao_revisada"]
+            for item in reviewed
+        ) / len(reviewed)
     if valid:
         metrics["taxa_com_limitacoes"] = sum(bool(item["resposta"]["limitacoes"].strip()) for item in valid) / len(valid)
     generation = [item["diagnostico_geracao"] for item in valid if item.get("diagnostico_geracao")]

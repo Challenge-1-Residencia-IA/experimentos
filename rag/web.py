@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 
 from rag.corpus import chunks, stable_id
 from rag.relevance import relevance
+from rag.cache import ResearchCache
 
 URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 MAX_BYTES = 5_000_000
@@ -157,15 +158,16 @@ def read_page(url: str) -> dict:
 
 class WebResearcher:
     def __init__(self) -> None:
-        self.pages: dict[str, dict] = {}
-        self.searches: dict[str, list[dict]] = {}
-        self.answer_cache: dict[tuple[str, str, str], tuple[float, dict, list[dict]]] = {}
-        self.fact_check_cache: dict[str, tuple[list[dict], str]] = {}
+        self.pages = ResearchCache()
+        self.searches = ResearchCache()
+        self.answer_cache: dict[tuple, tuple[float, dict, list[dict]]] = {}
+        self.fact_check_cache = ResearchCache()
 
     def fact_checks(self, query: str) -> tuple[list[dict], str]:
         """Consulta checagens publicadas; resultado é candidato, não prova automática."""
-        if query in self.fact_check_cache:
-            return self.fact_check_cache[query]
+        cached = self.fact_check_cache.get(query)
+        if cached is not None:
+            return cached
         load_dotenv(Path(__file__).resolve().parents[1] / ".env")
         key = os.getenv("FACT_CHECK_API_KEY", "").strip()
         if not key or key.casefold() in {"sua_chave_aqui", "your_api_key", "..."}:
@@ -199,23 +201,30 @@ class WebResearcher:
                 result = ([], f"http_{status}" if status else type(error).__name__)
             except (ValueError, TypeError, AttributeError, KeyError):
                 result = ([], "resposta_invalida")
-        self.fact_check_cache[query] = result
+        if result[1] == "ok":
+            self.fact_check_cache.put(query, result)
         return result
 
     def page(self, url: str) -> dict:
-        if url not in self.pages:
-            self.pages[url] = read_page(url)
-        return self.pages[url]
+        cached = self.pages.get(url)
+        if cached is not None:
+            return cached
+        page = read_page(url)
+        self.pages.put(url, page)
+        return page
 
     def search(self, query: str) -> list[dict]:
         query = query.strip()[:300]
         if not query:
             return []
-        if query not in self.searches:
-            self.searches[query] = DDGS(timeout=10).text(
-                query, region="br-pt", safesearch="moderate", max_results=SEARCH_RESULTS
-            ) or []
-        return self.searches[query]
+        cached = self.searches.get(query)
+        if cached is not None:
+            return cached
+        results = DDGS(timeout=10).text(
+            query, region="br-pt", safesearch="moderate", max_results=SEARCH_RESULTS
+        ) or []
+        self.searches.put(query, results)
+        return results
 
     def research(self, query: str, *, exclude_url: str | None = None,
                  exclude_group: str | None = None) -> tuple[list[dict], dict]:
@@ -248,7 +257,10 @@ class WebResearcher:
                 reverse=True,
             )
             candidate_urls = [result.get("href") or result.get("url") or "" for result in results]
-            candidate_urls = [url for url in candidate_urls if url and url != exclude_url]
+            candidate_urls = list(dict.fromkeys(
+                url for url in candidate_urls if url and url != exclude_url
+                and origin_group(url) != exclude_group and origin_group(url) not in groups
+            ))
             # Limita downloads simultâneos sem criar mais páginas que o teto da busca.
             with ThreadPoolExecutor(max_workers=4) as executor:
                 futures = {url: executor.submit(self.page, url) for url in candidate_urls[:MAX_PAGES]}

@@ -29,7 +29,7 @@ EVALUATION_DESCRIPTIONS = {
     "NAO_APLICAVEL": "🔘 Não aplicável (sem alegação factual verificável)",
 }
 EVALUATIONS = set(EVALUATION_DESCRIPTIONS)
-RESPONSE_VERSION = "analise-evidencias-v6"
+RESPONSE_VERSION = "analise-evidencias-v7"
 
 VERDICT_TEXTS = {
     "EVIDENCIAS_CONFLITANTES": (
@@ -103,6 +103,9 @@ def ask(
     inconclusive_reason: str | None = None,
 ) -> dict:
     started = pipeline_started if pipeline_started is not None else time.perf_counter()
+    question = question.strip()
+    if not question:
+        raise ValueError("Informe uma afirmação não vazia")
     load_dotenv(ROOT / ".env")
     retrieval_started = time.perf_counter()
     if evidence is None or teaching is None:
@@ -515,6 +518,8 @@ def _ask_online_single(message: str, researcher, store: VectorStore | None = Non
         " ".join(message.split()),
         model_name or os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
         json.dumps((history or [])[-2:], ensure_ascii=False, sort_keys=True),
+        inconclusive_reason,
+        RESPONSE_VERSION,
     )
     if cache is not None and cache_key in cache:
         cached_at, cached_answer, cached_items = cache[cache_key]
@@ -674,6 +679,7 @@ def validate_answer(payload: dict, items: list[dict]) -> dict:
     if any(index < 1 or index > len(items) for index in cited_in_text):
         raise ValueError("A resposta citou um documento inexistente")
     for field in ("evidencias_favoraveis", "evidencias_contrarias"):
+        normalized_evidence = []
         for value in payload[field]:
             references = cited_numbers(value)
             if len(references) != 1:
@@ -682,14 +688,24 @@ def validate_answer(payload: dict, items: list[dict]) -> dict:
             source = items[index - 1]
             if source["tipo"] != "evidencia" or source.get("relevancia", "direta") != "direta":
                 raise ValueError(f"{field} cita fonte que não analisa diretamente a alegação")
-            quotation = re.search(r'[“\"]([^”\"]{12,})[”\"]', value)
-            source_text = re.sub(r"\s+", " ", source["trecho"] + " " + source["titulo"]).casefold()
-            if not quotation or re.sub(r"\s+", " ", quotation.group(1)).casefold() not in source_text:
+            quotations = re.findall(r'[“\"]([^”\"]+)[”\"]', value)
+            if len(quotations) != 1 or len(quotations[0]) < 12:
+                raise ValueError(f"{field} exige um único trecho literal verificável")
+            quote = re.sub(r"\s+", " ", quotations[0]).strip()
+            # Não permita formar uma citação concatenando corpo e título.
+            source_texts = [re.sub(r"\s+", " ", source[key]).strip() for key in ("trecho", "titulo")]
+            if not any(quote.casefold() in text.casefold() for text in source_texts):
                 raise ValueError(f"{field} não contém trecho literal verificável na fonte")
-            if field == "evidencias_favoraveis" and _explicit_refutation(
-                quotation.group(1), payload["afirmacao"]
-            ):
-                raise ValueError("Um desmentido não pode ser classificado como evidência favorável")
+            if field == "evidencias_favoraveis":
+                sentences = [sentence for text in source_texts
+                             for sentence in re.split(r"(?<=[.!?])\s+", text)
+                             if quote.casefold() in sentence.casefold()]
+                if any(_explicit_refutation(text, payload["afirmacao"])
+                       for text in [quote, *sentences]):
+                    raise ValueError("Um desmentido não pode ser classificado como evidência favorável")
+            # Só o trecho conferido é exibido; narrativa livre ao redor dele não é prova.
+            normalized_evidence.append(f'Fonte [{index}]: “{quote}”')
+        payload[field] = list(dict.fromkeys(normalized_evidence))
     # A lista declarada pelo modelo não basta: uma fonte só é usada quando [n]
     # aparece de fato no texto validado.
     payload["fontes_usadas"] = sorted(cited_in_text)
@@ -718,6 +734,24 @@ def validate_answer(payload: dict, items: list[dict]) -> dict:
         evaluation = "EVIDENCIAS_INSUFICIENTES"
     payload["avaliacao_evidencias"] = evaluation
     payload.update(_safe_explanation(items))
+    if evaluation in {"EVIDENCIAS_SUFICIENTES_FAVORAVEIS", "EVIDENCIAS_SUFICIENTES_CONTRARIAS"}:
+        side = 0 if evaluation.endswith("FAVORAVEIS") else 1
+        direction = "a favor" if side == 0 else "contra"
+        payload["contexto"] = (
+            f"Foram validados trechos literais de {len(groups_by_side[side])} origens qualificadas "
+            f"distintas, classificados {direction} da afirmação. As citações abaixo mostram "
+            "os trechos utilizados para esta avaliação."
+        )
+        payload["limitacoes"] = (
+            "A conclusão se limita às fontes e aos trechos consultados. Origens distintas podem "
+            "reproduzir a mesma apuração; datas, contexto e independência editorial ainda precisam "
+            "ser conferidos. A validação literal não garante, sozinha, a interpretação do conteúdo."
+        )
+    elif evaluation == "EVIDENCIAS_CONFLITANTES":
+        payload["contexto"] = (
+            "Há trechos de fontes qualificadas classificados em sentidos opostos. "
+            "Compare as evidências favoráveis e contrárias abaixo; esta busca não resolve a divergência."
+        )
     if not cited_in_text:
         payload["achados"] = _unverified_findings(items)
     else:

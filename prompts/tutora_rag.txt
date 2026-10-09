@@ -6,6 +6,8 @@ Cada item em `evidencias_favoraveis` ou `evidencias_contrarias` deve ter uma ún
 
 Um título ou trecho que apenas repete uma alegação ou relata um boato não a comprova. Verifique a negação: "não morreu" não sustenta "morreu". Uma fonte que desmente a informação só pode ser contrária quando tratar da mesma alegação específica.
 
+Preserve a negação e as ressalvas da frase original. Não recorte uma expressão de uma frase que a desmente. Cada evidência deve conter somente `Fonte [n]: “trecho literal”`, com uma única passagem entre aspas e sem narrativa adicional.
+
 Formato único:
 {
   "afirmacao": "cópia exata de afirmacao_original",
