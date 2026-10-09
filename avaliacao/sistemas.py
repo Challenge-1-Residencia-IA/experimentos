@@ -33,6 +33,22 @@ def sha256_texto(valor: str) -> str:
     return hashlib.sha256(valor.encode("utf-8")).hexdigest()[:12]
 
 
+def resposta_da_tutora(resposta: dict, diagnostico: dict | None = None) -> Resposta:
+    """Converte a resposta da tutora (dicionário) para o formato padronizado da avaliação."""
+    textos = [resposta.get("veredito", ""), resposta.get("contexto", ""),
+              *resposta.get("pontos_de_atencao", []), resposta.get("limitacoes", "")]
+    trechos = [*resposta.get("evidencias_favoraveis", []), *resposta.get("evidencias_contrarias", []),
+               *resposta.get("achados", [])]
+    return Resposta(
+        texto="\n".join(t for t in textos if t),
+        trechos_citados=trechos,
+        fontes_recuperadas=[{**f, "descartada": False} for f in resposta.get("fontes_encontradas", [])]
+        + [{**f, "descartada": True} for f in resposta.get("fontes_descartadas", [])],
+        classificacao=resposta.get("avaliacao_evidencias"),
+        diagnostico={**(diagnostico or {}), "guardrails": resposta.get("guardrails")},
+    )
+
+
 class TutoraRAG:
     """Protótipo de tutora RAG do pacote `rag/` (ChromaDB + Qwen via Ollama)."""
 
@@ -69,19 +85,7 @@ class TutoraRAG:
 
     def responder(self, mensagem: str) -> Resposta:
         diagnostico: dict = {}
-        resposta = self._perguntar(mensagem, diagnostico)
-        textos = [resposta.get("veredito", ""), resposta.get("contexto", ""),
-                  *resposta.get("pontos_de_atencao", []), resposta.get("limitacoes", "")]
-        trechos = [*resposta.get("evidencias_favoraveis", []), *resposta.get("evidencias_contrarias", []),
-                   *resposta.get("achados", [])]
-        return Resposta(
-            texto="\n".join(t for t in textos if t),
-            trechos_citados=trechos,
-            fontes_recuperadas=[{**f, "descartada": False} for f in resposta.get("fontes_encontradas", [])]
-            + [{**f, "descartada": True} for f in resposta.get("fontes_descartadas", [])],
-            classificacao=resposta.get("avaliacao_evidencias"),
-            diagnostico=diagnostico,
-        )
+        return resposta_da_tutora(self._perguntar(mensagem, diagnostico), diagnostico)
 
 
 class TutoraRAGWeb(TutoraRAG):
@@ -101,5 +105,56 @@ class TutoraRAGWeb(TutoraRAG):
         return ask_online(mensagem, self.pesquisador, store=self.store, track=False)
 
 
-SISTEMAS = {TutoraRAG.nome: TutoraRAG, TutoraRAGWeb.nome: TutoraRAGWeb}
+class ModeloMLflow:
+    """Modelo MLflow (pyfunc) salvo por `scripts.registrar_modelo_rag_mlflow --salvar-em`.
+
+    Avalia o artefato entregue: a tutora no modo com busca na internet, com os guardrails, exatamente
+    como empacotada (prompt, índice, corpus e código).
+    """
+
+    nome = "modelo-mlflow"
+    CAMINHO_PADRAO = "models/tutora-rag-v1"
+
+    def __init__(self, caminho: str | None = None, modo: str = "web", modelo=None) -> None:
+        """`modelo` permite reaproveitar um modelo já carregado (evita uma segunda cópia na GPU)."""
+        import json
+        from pathlib import Path
+
+        import mlflow
+
+        self.caminho = Path(caminho or os.getenv("AVALIACAO_MODELO", self.CAMINHO_PADRAO)).resolve()
+        self.modo = modo
+        self.modelo = modelo if modelo is not None else mlflow.pyfunc.load_model(str(self.caminho))
+        self.manifesto = json.loads((self.caminho / "manifest.json").read_text(encoding="utf-8"))
+
+    def versao(self) -> dict[str, str]:
+        m = self.manifesto
+        return {
+            "sistema": f"{self.nome} ({self.caminho.name}, modo {self.modo})",
+            "modelo_llm": m["ollama_model"],
+            "ollama_sha256": m["ollama_sha256"][:12],
+            "modelo_embeddings": m["embedding_model"],
+            "versao_resposta": m["response_version"],
+            "prompt_sha256": m["contract"]["prompt_sha256"][:12],
+            "corpus_sha256": m["corpus_sha256"][:12],
+            "indice_sha256": m["index_sha256"][:12],
+        }
+
+    def urls_na_base(self) -> set[str]:
+        import json
+
+        corpus = self.caminho / "artifacts" / "documents.jsonl"
+        linhas = corpus.read_text(encoding="utf-8").splitlines()
+        return {d["url"] for d in map(json.loads, filter(None, linhas)) if d.get("kind") == "evidencia"}
+
+    def responder(self, mensagem: str) -> Resposta:
+        import json
+
+        import pandas as pd
+
+        saida = self.modelo.predict(pd.DataFrame([{"pergunta": mensagem, "modo": self.modo}]))
+        return resposta_da_tutora(json.loads(saida[0]))
+
+
+SISTEMAS = {TutoraRAG.nome: TutoraRAG, TutoraRAGWeb.nome: TutoraRAGWeb, ModeloMLflow.nome: ModeloMLflow}
 
