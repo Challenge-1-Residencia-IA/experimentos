@@ -3,6 +3,10 @@ chromadb
 ddgs
 feedparser
 mlflow
+# Graphene usado pela interface MLflow exige graphql-core < 3.3.
+graphql-core>=3.2,<3.3
+# O cliente DagsHub também usa GraphQL; mantenha a linha compatível com Graphene.
+gql[requests]>=3.5,<4
 neon-serverless==0.1.0
 pgvector
 pypdf

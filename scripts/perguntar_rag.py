@@ -22,7 +22,7 @@ def main() -> None:
         os.environ["MLFLOW_TRACKING_URI"] = f"sqlite:///{base / 'mlflow.db'}"
         os.environ["MLFLOW_LOCAL_ARTIFACT_ROOT"] = str(base / "artifacts")
         os.environ["MLFLOW_EXPERIMENT_NAME"] = "NexoVerdict-Temporario"
-    answer = ask(args.pergunta) if args.local else ask_online(args.pergunta, WebResearcher())
+    answer = ask(args.pergunta, natural_language=True) if args.local else ask_online(args.pergunta, WebResearcher())
     print(json.dumps(answer, ensure_ascii=False, indent=2))
 
 

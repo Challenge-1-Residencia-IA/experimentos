@@ -151,7 +151,7 @@ def index() -> None:
 
 
 def render_answer(answer: dict) -> None:
-    from rag.tutor import AI_NOTICE, EVALUATION_DESCRIPTIONS, VERDICT_TEXTS
+    from rag.tutor import AI_NOTICE, VERDICT_TEXTS
 
     if answer.get("analises"):
         console.print(Panel(Text(answer.get("sintese") or answer["veredito"]), title="Pergunta composta", border_style="yellow"))
@@ -159,29 +159,11 @@ def render_answer(answer: dict) -> None:
             console.print(f"[bold cyan]Alegação {number}[/bold cyan]")
             render_answer(analysis)
         return
-    console.print("[bold]ANÁLISE[/bold]")
-    console.print(Panel(Text(answer["afirmacao"]), title="Afirmação", border_style="cyan"))
-    verdict = answer.get("sintese") or answer.get("veredito") or VERDICT_TEXTS[answer["avaliacao_evidencias"]]
-    console.print(Panel(Text(verdict), title="O que as fontes indicam", border_style="yellow"))
+    verdict = answer.get("resposta_usuario") or answer.get("sintese") or answer.get("veredito") or VERDICT_TEXTS[answer["avaliacao_evidencias"]]
+    console.print(Panel(Text(verdict), title="Análise", border_style="cyan"))
     console.print(Text(answer.get("aviso_ia") or AI_NOTICE, style="dim"))
     if answer.get("fonte_enviada"):
         console.print(f"[dim]Publicação enviada: {answer['fonte_enviada']['url']}[/dim]")
-    if answer.get("achados"):
-        console.print(Panel(
-            Text("\n\n".join(f"• {value}" for value in answer["achados"])),
-            title="Páginas encontradas (conteúdo não validado como prova)",
-            border_style="cyan",
-        ))
-    for title, key, color in (("Evidências favoráveis", "evidencias_favoraveis", "green"),
-                              ("Evidências contrárias", "evidencias_contrarias", "red"),
-                              ("Pontos de atenção", "pontos_de_atencao", "yellow")):
-        values = answer[key]
-        console.print(Panel(Text("\n".join(f"• {value}" for value in values) if values else "Nenhuma encontrada."),
-                            title=title, border_style=color))
-    console.print(Panel(Text(answer["contexto"]), title="Contexto", border_style="blue"))
-    console.print(Panel(Text(EVALUATION_DESCRIPTIONS[answer["avaliacao_evidencias"]]),
-                        title="Avaliação das evidências", border_style="yellow"))
-    console.print(Panel(Text(answer["limitacoes"]), title="Limitações", border_style="magenta"))
     if answer["fontes"]:
         table = Table(title="Fontes citadas", show_lines=True)
         table.add_column("Nº", justify="right", style="cyan", no_wrap=True)
@@ -231,7 +213,6 @@ def render_answer(answer: dict) -> None:
             table.add_row(check["veiculo"], check["alegacao_checada"],
                           check["avaliacao_do_veiculo"], check["url"])
         console.print(table)
-    console.print(Text(answer["limite_da_validacao"], style="dim"))
     research = answer.get("pesquisa_web")
     if research is not None:
         console.print(f"[dim]Pesquisa web: {research['resultados']} resultados; "

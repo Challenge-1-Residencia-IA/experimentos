@@ -54,6 +54,8 @@ def test_interface_exibe_analise_e_aviso(capsys):
     import main
     main.render_answer(tutor.safe_fallback("O projeto Aurora foi aprovado?", []))
     rendered = capsys.readouterr().out
-    assert "O que as fontes indicam" in rendered
+    assert "Análise" in rendered
+    assert "Evidências favoráveis" not in rendered
+    assert "Evidências contrárias" not in rendered
     assert "Sou uma IA e posso cometer erros." in rendered
     assert "Veredito" not in rendered

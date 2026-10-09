@@ -429,7 +429,8 @@ def test_pergunta_identica_reutiliza_resposta_na_mesma_conversa(monkeypatch):
     researcher = Researcher()
     first = tutor.ask_online("O projeto X foi aprovado?", researcher, store=Store())
     second = tutor.ask_online("O projeto X foi aprovado?", researcher, store=Store())
-    assert counts == {"search": 1, "model": 1}
+    # Extração e redação ocorrem uma vez; a segunda pergunta reutiliza ambas.
+    assert counts == {"search": 1, "model": 2}
     assert len(contexts) == 2
     assert contexts[1]["metricas_execucao"]["cache_hit"] == 1.0
     assert first["veredito"] == second["veredito"]

@@ -80,6 +80,6 @@ class RAGModel(mlflow.pyfunc.PythonModel):
                                     model_name=self.ollama_model)
             else:
                 answer = ask(question, store=self.store, track=False,
-                             model_name=self.ollama_model)
+                             model_name=self.ollama_model, natural_language=True)
             answers.append(json.dumps(answer, ensure_ascii=False))
         return answers

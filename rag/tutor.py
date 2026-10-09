@@ -16,6 +16,7 @@ from rag.corpus import ROOT
 from rag.claims import ambiguous_compound, split_claims
 from rag.claim_alerts import apply_claim_alert
 from rag.discourse import analyze_discourse, adaptive_prompt, attach_discourse
+from rag.response_text import extracted_response, write_response
 from rag.dagshub_tracking import REGISTERED_MODEL_NAME, configure_tracking, contract_fingerprint, git_revision, matching_model_version
 from rag.relevance import relevance
 from rag.splitter import CHUNKING_VERSION
@@ -32,7 +33,7 @@ EVALUATION_DESCRIPTIONS = {
     "NAO_APLICAVEL": "🔘 Não aplicável (sem alegação factual verificável)",
 }
 EVALUATIONS = set(EVALUATION_DESCRIPTIONS)
-RESPONSE_VERSION = "analise-evidencias-v10"
+RESPONSE_VERSION = "analise-evidencias-v11"
 AI_NOTICE = "Sou uma IA e posso cometer erros."
 
 VERDICT_TEXTS = {
@@ -106,6 +107,7 @@ def ask(
     result_items: list[dict] | None = None,
     inconclusive_reason: str | None = None,
     discourse_text: str | None = None,
+    natural_language: bool = False,
 ) -> dict:
     started = pipeline_started if pipeline_started is not None else time.perf_counter()
     question = question.strip()
@@ -202,6 +204,11 @@ def ask(
         repaired = False
         fallback = True
     attach_discourse(answer, discourse)
+    response_trace = None
+    if natural_language:
+        answer["resposta_usuario"], response_trace = write_response(answer, ollama_json, model_name=model_name)
+    else:
+        answer["resposta_usuario"] = extracted_response(answer)
     generation_s = time.perf_counter() - generation_started
     diagnostics = {
         "tentativas_geracao": len(attempts),
@@ -211,6 +218,8 @@ def ask(
         "fallback_seguro": fallback,
         "afirmacao_original_preservada": answer["afirmacao"] == question.strip(),
         "erros_validacao": validation_errors,
+        "tentativas_redacao": int(natural_language),
+        "fallback_redacao": bool(response_trace and response_trace["fallback"]),
     }
     if generation_diagnostics is not None:
         generation_diagnostics.clear()
@@ -225,12 +234,15 @@ def ask(
             "latencia_geracao_s": generation_s,
             "latencia_total_s": time.perf_counter() - started,
             "tentativas_geracao": float(diagnostics["tentativas_geracao"]),
+            "tentativas_redacao": float(diagnostics["tentativas_redacao"]),
+            "fallback_redacao": float(diagnostics["fallback_redacao"]),
             "primeira_resposta_valida": float(diagnostics["primeira_resposta_valida"]),
             "correcao_automatica_sucesso": float(diagnostics["correcao_automatica_sucesso"]),
             "fallback_seguro": float(diagnostics["fallback_seguro"]),
             "afirmacao_original_preservada": float(diagnostics["afirmacao_original_preservada"]),
         })
         generation_trace = {
+            "redacao_resposta": response_trace,
             "prompt_adaptativo": system_prompt,
             "analise_discurso": discourse,
             "tentativas": attempts,
@@ -643,6 +655,7 @@ def _ask_online_single(message: str, researcher, store: VectorStore | None = Non
                  result_items=result_items,
                  inconclusive_reason=inconclusive_reason,
                  discourse_text=discourse_text,
+                 natural_language=True,
                  tracking_context={"modo": "web", "pesquisa_web": diagnostics,
                                    "checagens_candidatas": checks,
                                    "publicacao_enviada": publication,
