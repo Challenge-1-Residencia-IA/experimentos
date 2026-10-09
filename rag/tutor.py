@@ -14,6 +14,8 @@ from dotenv import load_dotenv
 
 from rag.corpus import ROOT
 from rag.claims import ambiguous_compound, split_claims
+from rag.claim_alerts import apply_claim_alert
+from rag.discourse import analyze_discourse, adaptive_prompt, attach_discourse
 from rag.dagshub_tracking import REGISTERED_MODEL_NAME, configure_tracking, contract_fingerprint, git_revision, matching_model_version
 from rag.relevance import relevance
 from rag.splitter import CHUNKING_VERSION
@@ -30,7 +32,7 @@ EVALUATION_DESCRIPTIONS = {
     "NAO_APLICAVEL": "🔘 Não aplicável (sem alegação factual verificável)",
 }
 EVALUATIONS = set(EVALUATION_DESCRIPTIONS)
-RESPONSE_VERSION = "analise-evidencias-v8"
+RESPONSE_VERSION = "analise-evidencias-v10"
 AI_NOTICE = "Sou uma IA e posso cometer erros."
 
 VERDICT_TEXTS = {
@@ -103,6 +105,7 @@ def ask(
     pipeline_started: float | None = None,
     result_items: list[dict] | None = None,
     inconclusive_reason: str | None = None,
+    discourse_text: str | None = None,
 ) -> dict:
     started = pipeline_started if pipeline_started is not None else time.perf_counter()
     question = question.strip()
@@ -166,6 +169,9 @@ def ask(
         "publicacao_enviada": publication,
         "historico": (history or [])[-2:],
     }
+    discourse = analyze_discourse(discourse_text if discourse_text is not None else question)
+    prompt_data["padroes_de_escrita"] = discourse
+    system_prompt = adaptive_prompt(SYSTEM_PROMPT, discourse)
     prompt = json.dumps(prompt_data, ensure_ascii=False)
     generation_started = time.perf_counter()
     attempts = []
@@ -177,7 +183,7 @@ def ask(
             raise ValueError(inconclusive_reason)
         if not direct_items:
             raise ValueError("Nenhuma fonte diretamente alinhada à alegação foi recuperada")
-        payload = ollama_json(SYSTEM_PROMPT, prompt, ANSWER_SCHEMA, model_name=model_name)
+        payload = ollama_json(system_prompt, prompt, ANSWER_SCHEMA, model_name=model_name)
         attempts.append(deepcopy(payload))
         if not isinstance(payload, dict) or payload.get("afirmacao") != question.strip():
             raise ValueError("O modelo alterou a alegação original")
@@ -195,6 +201,7 @@ def ask(
             answer["sintese"] = inconclusive_reason
         repaired = False
         fallback = True
+    attach_discourse(answer, discourse)
     generation_s = time.perf_counter() - generation_started
     diagnostics = {
         "tentativas_geracao": len(attempts),
@@ -224,6 +231,8 @@ def ask(
             "afirmacao_original_preservada": float(diagnostics["afirmacao_original_preservada"]),
         })
         generation_trace = {
+            "prompt_adaptativo": system_prompt,
+            "analise_discurso": discourse,
             "tentativas": attempts,
             "resposta_apos_correcoes_locais": payload,
             "referencias_corrigidas_localmente": local_repairs,
@@ -526,6 +535,7 @@ def _ask_online_single(message: str, researcher, store: VectorStore | None = Non
         json.dumps((history or [])[-2:], ensure_ascii=False, sort_keys=True),
         inconclusive_reason,
         RESPONSE_VERSION,
+        analyze_discourse(message)["base_sha256"],
     )
     if cache is not None and cache_key in cache:
         cached_at, cached_answer, cached_items = cache[cache_key]
@@ -551,8 +561,10 @@ def _ask_online_single(message: str, researcher, store: VectorStore | None = Non
     if not text and not url:
         raise ValueError("Escreva uma pergunta, alegação ou URL")
     publication = None
+    discourse_text = None
     if url:
         page = researcher.page(url)
+        discourse_text = page["title"] + "\n" + page["text"][:8000]
         publication = {"url": page["url"], "titulo": page["title"],
                        "data": page["date"], "trecho": page["text"][:1200]}
         claim, verifiable = extract_claim(page, focus=text, model_name=model_name)
@@ -568,6 +580,7 @@ def _ask_online_single(message: str, researcher, store: VectorStore | None = Non
                     "fontes": [], "fontes_encontradas": [], "fontes_usadas": [],
                     "fonte_enviada": publication, "pesquisa_web": None,
                     "limite_da_validacao": "A extração automática da alegação pode precisar de revisão."}
+            attach_discourse(answer, analyze_discourse(discourse_text))
             if track:
                 _track_answer(message, [], answer, answer)
             return answer
@@ -629,6 +642,7 @@ def _ask_online_single(message: str, researcher, store: VectorStore | None = Non
                  pipeline_started=pipeline_started,
                  result_items=result_items,
                  inconclusive_reason=inconclusive_reason,
+                 discourse_text=discourse_text,
                  tracking_context={"modo": "web", "pesquisa_web": diagnostics,
                                    "checagens_candidatas": checks,
                                    "publicacao_enviada": publication,
@@ -832,4 +846,4 @@ def validate_answer(payload: dict, items: list[dict]) -> dict:
         "A validação confere formato, referências e diversidade declarada de origens; "
         "o suporte factual das citações requer avaliação humana."
     )
-    return payload
+    return apply_claim_alert(payload)
