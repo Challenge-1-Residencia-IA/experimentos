@@ -87,7 +87,7 @@ def main() -> None:
     requirements = [f"{name}=={version(name)}" for name in (
         "mlflow", "chromadb", "sentence-transformers", "requests",
         "python-dotenv", "feedparser", "beautifulsoup4", "pypdf", "pandas",
-        "ddgs", "trafilatura")]
+        "ddgs", "trafilatura", "nemoguardrails")]
     with mlflow.start_run(run_name=f"registro-rag-{RESPONSE_VERSION}") as run:
         mlflow.log_params({
             "response_version": RESPONSE_VERSION,
@@ -113,7 +113,7 @@ def main() -> None:
             artifact_path="modelo_rag",
             python_model=RAGModel(qwen, digest, MODEL, revision),
             artifacts=artifacts,
-            code_paths=[str(ROOT / "rag"), str(ROOT / "prompts")],
+            code_paths=[str(ROOT / "rag"), str(ROOT / "guardrails"), str(ROOT / "prompts")],
             pip_requirements=requirements,
             metadata=manifest,
         )
