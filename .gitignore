@@ -50,6 +50,9 @@ datasets/
 results/*
 !results/.gitkeep
 
+# Documentação local
+docs/
+
 # Modelos, checkpoints e logs de treinamento
 models/
 *.gguf

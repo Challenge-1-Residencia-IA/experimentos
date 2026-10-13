@@ -33,7 +33,7 @@ EVALUATION_DESCRIPTIONS = {
     "NAO_APLICAVEL": "🔘 Não aplicável (sem alegação factual verificável)",
 }
 EVALUATIONS = set(EVALUATION_DESCRIPTIONS)
-RESPONSE_VERSION = "analise-evidencias-v11"
+RESPONSE_VERSION = "analise-evidencias-v13"
 AI_NOTICE = "Sou uma IA e posso cometer erros."
 
 VERDICT_TEXTS = {
@@ -698,6 +698,88 @@ def _explicit_refutation(quote: str, claim: str) -> bool:
     ))
 
 
+def _plain_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value.casefold())
+    return "".join(char for char in normalized if not unicodedata.combining(char))
+
+
+def _project_approval_claim(claim: str) -> tuple[str, bool, str | None] | None:
+    """Reconhece aprovação simples de um projeto, com ano opcional."""
+    match = re.fullmatch(
+        r"\s*(o projeto(?: [\w-]+){1,4}?) (nao )?foi aprovado(?: em (\d{4}))?[?.!\s]*",
+        _plain_text(claim),
+    )
+    return (match.group(1), bool(match.group(2)), match.group(3)) if match else None
+
+
+def _project_approval_direction(text: str, subject: str, year: str | None) -> bool | None:
+    """Retorna a direção explícita; texto incerto, misto ou sem ano exigido falha."""
+    normalized = _plain_text(text)
+    if "?" in normalized or re.search(
+        r"\b(?:e falso que|boato|rumor|supost[oa]|teria|pode(?:ria)?)\b", normalized
+    ):
+        return None
+    date = r"(?:\s+em\s+(?P<day>\d{1,2}\s+de\s+[a-z]+\s+de\s+)?(?P<year>\d{4}))?"
+    patterns = (
+        (rf"\b{re.escape(subject)}\s+(?P<negation>nao\s+)?foi\s+aprovado\b{date}", True),
+        (rf"\bo conselho\s+aprovou\s+{re.escape(subject)}\b{date}", False),
+        (rf"\b{re.escape(subject)}\s+recebeu\s+aprovacao\b{date}", False),
+    )
+    matches = [
+        (bool(match.group("negation")) if has_negation else False,
+         match.group("year"), bool(match.group("day")))
+        for pattern, has_negation in patterns
+        for match in re.finditer(pattern, normalized)
+    ]
+    if len(matches) != 1 or (year is not None and matches[0][1] != year):
+        return None
+    # Negar aprovação em um dia não nega aprovação no ano inteiro.
+    if matches[0][0] and matches[0][2]:
+        return None
+    return bool(matches[0][0])
+
+
+def _unconfirmed_project_approval(text: str, subject: str) -> bool:
+    normalized = _plain_text(text)
+    return bool(re.search(
+        rf"\b(?:nao ha confirmacao (?:da aprovacao d{re.escape(subject)}|"
+        rf"de que {re.escape(subject)} foi aprovado)|"
+        rf"nao encontramos registro de aprovacao d{re.escape(subject)})\b",
+        normalized,
+    ))
+
+
+def _only_missing_confirmation(text: str) -> bool:
+    """Detecta linguagem de falta de prova, que não estabelece polaridade factual.
+
+    É uma trava conservadora: quando o trecho mistura incerteza e uma possível
+    refutação, pedimos uma citação inequívoca em vez de inferir seu sentido.
+    """
+    normalized = _plain_text(text)
+    return bool(re.search(
+        r"\b(?:"
+        r"nao (?:ha|houve|existe(?:m)?|temos) (?:qualquer )?(?:confirmacao|comprovacao|"
+        r"evidencias?|provas?|registros?)\b|"
+        r"nao (?:encontramos|localizamos|identificamos|achamos) "
+        r"(?:qualquer )?(?:confirmacao|comprovacao|evidencias?|provas?|registros?)\b|"
+        r"nao (?:foi|foram) encontrad[oa]s? (?:confirmacao|comprovacao|"
+        r"evidencias?|provas?|registros?)\b|"
+        r"(?:ainda )?nao (?:foi|esta) (?:confirmad[oa]|comprovad[oa]|verificad[oa])\b|"
+        r"nao (?:foi|e) possivel (?:confirmar|verificar|comprovar)\b|"
+        r"(?:sem|falta de|ausencia de) (?:confirmacao|comprovacao|evidencias?|"
+        r"provas?|registros?)\b"
+        r")", normalized,
+    ))
+
+
+def _cited_clause(sentence: str, quote: str) -> str:
+    """Isola uma oração adversativa para não herdar ressalva sobre outro fato."""
+    for clause in re.split(r"\s*;\s*|,?\s+\b(?:mas|por[eé]m|contudo)\b\s+", sentence, flags=re.IGNORECASE):
+        if quote.casefold() in clause.casefold():
+            return clause
+    return sentence
+
+
 def evidence_synthesis(payload: dict) -> str:
     """Expõe a direção dos trechos validados sem converter contagens em verdade."""
     favorable = payload["evidencias_favoraveis"]
@@ -766,13 +848,27 @@ def validate_answer(payload: dict, items: list[dict]) -> dict:
             source_texts = [re.sub(r"\s+", " ", source[key]).strip() for key in ("trecho", "titulo")]
             if not any(quote.casefold() in text.casefold() for text in source_texts):
                 raise ValueError(f"{field} não contém trecho literal verificável na fonte")
+            sentences = [sentence for text in source_texts
+                         for sentence in re.split(r"(?<=[.!?])\s+", text)
+                         if quote.casefold() in sentence.casefold()]
             if field == "evidencias_favoraveis":
-                sentences = [sentence for text in source_texts
-                             for sentence in re.split(r"(?<=[.!?])\s+", text)
-                             if quote.casefold() in sentence.casefold()]
                 if any(_explicit_refutation(text, payload["afirmacao"])
                        for text in [quote, *sentences]):
                     raise ValueError("Um desmentido não pode ser classificado como evidência favorável")
+            approval = _project_approval_claim(payload["afirmacao"])
+            if approval:
+                subject, claim_negated, year = approval
+                # O trecho citado e a frase de origem precisam afirmar a direção.
+                # Falta de confirmação, formulação incerta ou ano distinto acionam o fallback.
+                expected = claim_negated if field == "evidencias_favoraveis" else not claim_negated
+                if (any(_unconfirmed_project_approval(text, subject)
+                        for text in [quote, *sentences])
+                        or any(_project_approval_direction(text, subject, year) != expected
+                               for text in [quote, *sentences])):
+                    raise ValueError("Polaridade do projeto ambígua ou incompatível com o lado da citação")
+            if any(_only_missing_confirmation(text) for text in
+                   [quote, *(_cited_clause(sentence, quote) for sentence in sentences)]):
+                raise ValueError("Ausência de confirmação não é evidência favorável nem contrária")
             # Só o trecho conferido é exibido; narrativa livre ao redor dele não é prova.
             normalized_evidence.append(f'Fonte [{index}]: “{quote}”')
         payload[field] = list(dict.fromkeys(normalized_evidence))

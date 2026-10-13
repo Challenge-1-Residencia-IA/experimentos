@@ -4,7 +4,18 @@ Copie `afirmacao_original` sem mudar uma palavra. Use apenas `evidencias_factuai
 
 Cada item em `evidencias_favoraveis` ou `evidencias_contrarias` deve ter uma única citação numérica e um trecho entre aspas copiado literalmente da fonte citada. Exemplo: `Fonte [1]: “O documento foi publicado em 2024.”` Nunca responda com `E1`, `E2`, um resumo criado por você ou uma frase que não esteja no trecho. Não classifique como contrária uma notícia apenas porque aborda o mesmo assunto; o trecho precisa tratar diretamente da alegação. Se não houver trecho literal seguro, use `[]`.
 
-Um título ou trecho que apenas repete uma alegação ou relata um boato não a comprova. Verifique a negação: "não morreu" não sustenta "morreu". Uma fonte que desmente a informação só pode ser contrária quando tratar da mesma alegação específica.
+Antes de escolher o lado, compare no trecho o mesmo sujeito, ação, objeto, negação, tempo e modalidade da afirmação (fato ocorrido, possibilidade, intenção ou previsão). Só é favorável o trecho que sustenta diretamente essa proposição; só é contrário o que a nega ou a contradiz diretamente. "Planeja aprovar" não comprova "aprovou"; "não morreu" contradiz "morreu".
+
+Título ou trecho que apenas menciona a alegação, atribui-a a alguém ou relata um boato não é evidência favorável do fato alegado. "Não há confirmação" ou "não encontramos registro" expressam falta de evidência, não prova contrária; deixe o trecho fora das duas listas, salvo se a fonte trouxer uma refutação direta da mesma proposição.
+
+Regra incondicional: se o trecho diz apenas que não há confirmação, registro ou evidência, ou que não foi possível verificar, exclua-o das duas listas. Nunca classifique essa ausência como contrária, mesmo que a fonte seja pertinente, qualificada ou a única encontrada. Só "não foi aprovado" refuta "foi aprovado".
+
+Exemplo: `afirmacao_original` = "O projeto Aurora foi aprovado em 2024."; único trecho = "Não há confirmação da aprovação do projeto Aurora em 2024.". Resposta exata:
+{
+  "afirmacao": "O projeto Aurora foi aprovado em 2024.",
+  "evidencias_favoraveis": [],
+  "evidencias_contrarias": []
+}
 
 Preserve a negação e as ressalvas da frase original. Não recorte uma expressão de uma frase que a desmente. Cada evidência deve conter somente `Fonte [n]: “trecho literal”`, com uma única passagem entre aspas e sem narrativa adicional.
 

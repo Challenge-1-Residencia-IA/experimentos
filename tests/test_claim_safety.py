@@ -1,3 +1,5 @@
+import pytest
+
 from rag.claims import ambiguous_compound, split_claims
 from rag import tutor, web
 
@@ -87,6 +89,220 @@ def test_desmentido_nao_pode_ser_usado_como_evidencia_favoravel():
         assert "desmentido" in str(error)
     else:
         raise AssertionError("Desmentido aceito como favorável")
+
+
+@pytest.mark.parametrize("claim, quote, side, accepted", [
+    ("O projeto X foi aprovado?", "O projeto X foi aprovado.", "evidencias_favoraveis", True),
+    ("O projeto X foi aprovado?", "O projeto X não foi aprovado.", "evidencias_contrarias", True),
+    ("O projeto X não foi aprovado?", "O projeto X não foi aprovado.", "evidencias_favoraveis", True),
+    ("O projeto X não foi aprovado?", "O projeto X foi aprovado.", "evidencias_contrarias", True),
+    ("O projeto X foi aprovado?", "O projeto X não foi aprovado.", "evidencias_favoraveis", False),
+    ("O projeto X foi aprovado?", "O projeto X foi aprovado.", "evidencias_contrarias", False),
+    ("O projeto X não foi aprovado?", "O projeto X foi aprovado.", "evidencias_favoraveis", False),
+    ("O projeto X não foi aprovado?", "O projeto X não foi aprovado.", "evidencias_contrarias", False),
+])
+def test_polaridade_explicita_de_aprovacao_em_ambos_os_lados(claim, quote, side, accepted):
+    item = {"numero": 1, "tipo": "evidencia", "titulo": "Projeto X", "origem": "Fonte",
+            "grupo_origem": "origem", "url": "https://example.org/projeto", "data": "",
+            "qualificada": True, "trecho": quote, "relevancia": "direta"}
+    payload = {"afirmacao": claim, "evidencias_favoraveis": [], "evidencias_contrarias": []}
+    payload[side] = [f'Fonte [1]: “{quote}”']
+    if accepted:
+        assert tutor.validate_answer(payload, [item])[side] == [f'Fonte [1]: “{quote}”']
+    else:
+        with pytest.raises(ValueError, match="[Pp]olaridade|desmentido"):
+            tutor.validate_answer(payload, [item])
+
+
+@pytest.mark.parametrize("source_text, quote", [
+    ("É falso que o projeto X foi aprovado.", "o projeto X foi aprovado"),
+    ("O projeto X foi aprovado?", "O projeto X foi aprovado?"),
+    ("O projeto X foi aprovado, mas o projeto X não foi aprovado.",
+     "O projeto X foi aprovado, mas o projeto X não foi aprovado."),
+    ("O projeto X pode ter sido aprovado.", "O projeto X pode ter sido aprovado."),
+])
+def test_aprovacao_ambigua_nao_vira_evidencia_contraria(source_text, quote):
+    item = {"numero": 1, "tipo": "evidencia", "titulo": "Projeto X", "origem": "Fonte",
+            "grupo_origem": "origem", "url": "https://example.org/projeto", "data": "",
+            "qualificada": True, "trecho": source_text, "relevancia": "direta"}
+    payload = {"afirmacao": "O projeto X foi aprovado?", "evidencias_favoraveis": [],
+               "evidencias_contrarias": [f'Fonte [1]: “{quote}”']}
+    with pytest.raises(ValueError, match="Polaridade"):
+        tutor.validate_answer(payload, [item])
+    assert tutor.safe_fallback(payload["afirmacao"], [item])["avaliacao_evidencias"] == "EVIDENCIAS_INSUFICIENTES"
+
+
+@pytest.mark.parametrize("claim, side", [
+    ("O projeto Aurora foi aprovado?", "evidencias_contrarias"),
+    ("O projeto Aurora foi aprovado?", "evidencias_favoraveis"),
+    ("O projeto Aurora não foi aprovado?", "evidencias_contrarias"),
+    ("O projeto Aurora não foi aprovado?", "evidencias_favoraveis"),
+    ("O projeto Aurora foi aprovado em 2024.", "evidencias_contrarias"),
+])
+def test_ausencia_de_confirmacao_nao_define_polaridade(claim, side):
+    quote = "Não há confirmação da aprovação do projeto Aurora em 2024."
+    item = {"numero": 1, "tipo": "evidencia", "titulo": "Projeto Aurora", "origem": "Fonte",
+            "grupo_origem": "origem", "url": "https://example.org/aurora", "data": "",
+            "qualificada": True, "trecho": quote, "relevancia": "direta"}
+    payload = {"afirmacao": claim, "evidencias_favoraveis": [], "evidencias_contrarias": []}
+    payload[side] = [f'Fonte [1]: “{quote}”']
+    with pytest.raises(ValueError, match="Polaridade"):
+        tutor.validate_answer(payload, [item])
+    assert tutor.safe_fallback(claim, [item])["avaliacao_evidencias"] == "EVIDENCIAS_INSUFICIENTES"
+
+
+@pytest.mark.parametrize("quote", [
+    "O projeto Aurora será votado amanhã.",
+    "Não encontramos registro de aprovação do projeto Aurora em 2024.",
+])
+@pytest.mark.parametrize("side", ["evidencias_favoraveis", "evidencias_contrarias"])
+@pytest.mark.parametrize("claim", [
+    "O projeto Aurora foi aprovado?",
+    "O projeto Aurora foi aprovado em 2024.",
+])
+def test_sem_direcao_explicita_nao_e_evidencia_de_aprovacao(quote, side, claim):
+    item = {"numero": 1, "tipo": "evidencia", "titulo": "Projeto Aurora", "origem": "Fonte",
+            "grupo_origem": "origem", "url": "https://example.org/aurora", "data": "",
+            "qualificada": True, "trecho": quote, "relevancia": "direta"}
+    payload = {"afirmacao": claim, "evidencias_favoraveis": [], "evidencias_contrarias": []}
+    payload[side] = [f'Fonte [1]: “{quote}”']
+    with pytest.raises(ValueError, match="Polaridade"):
+        tutor.validate_answer(payload, [item])
+    assert tutor.safe_fallback(claim, [item])["avaliacao_evidencias"] == "EVIDENCIAS_INSUFICIENTES"
+
+
+@pytest.mark.parametrize("claim, source_text, quote", [
+    ("A cantora Elisa morreu?",
+     "Não há confirmação de que a cantora Elisa morreu.",
+     "Não há confirmação de que a cantora Elisa morreu"),
+    ("A cantora Elisa morreu?",
+     "Até agora, não há confirmação de que a cantora Elisa morreu na terça-feira.",
+     "a cantora Elisa morreu"),
+    ("A atleta Elisa foi vacinada?",
+     "Não encontramos registro de que a atleta Elisa foi vacinada.",
+     "Não encontramos registro de que a atleta Elisa foi vacinada"),
+    ("A atleta Elisa foi vacinada?",
+     "Segundo a nota, não encontramos registro de que a atleta Elisa foi vacinada ontem.",
+     "a atleta Elisa foi vacinada"),
+    ("A vacina Luma foi aprovada?",
+     "Não há evidência de que a vacina Luma foi aprovada.",
+     "Não há evidência de que a vacina Luma foi aprovada"),
+    ("A vacina Luma foi aprovada?",
+     "Por enquanto, não há evidência de que a vacina Luma foi aprovada no país.",
+     "a vacina Luma foi aprovada"),
+    ("A cantora Elisa morreu?", "Não houve confirmação da morte da cantora Elisa.",
+     "Não houve confirmação da morte da cantora Elisa."),
+    ("A cantora Elisa morreu?", "Não existem registros da morte da cantora Elisa.",
+     "Não existem registros da morte da cantora Elisa."),
+    ("A cantora Elisa morreu?", "Não foram encontradas evidências da morte da cantora Elisa.",
+     "Não foram encontradas evidências da morte da cantora Elisa."),
+])
+@pytest.mark.parametrize("side", ["evidencias_favoraveis", "evidencias_contrarias"])
+def test_ausencia_de_prova_nao_sustenta_nenhum_lado_em_alegacoes_diversas(
+    claim, source_text, quote, side,
+):
+    item = {"numero": 1, "tipo": "evidencia", "titulo": "Nota de apuração",
+            "origem": "Fonte", "grupo_origem": "origem",
+            "url": "https://example.org/nota", "data": "", "qualificada": True,
+            "trecho": source_text, "relevancia": "direta"}
+    payload = {"afirmacao": claim, "evidencias_favoraveis": [],
+               "evidencias_contrarias": []}
+    payload[side] = [f'Fonte [1]: “{quote}”']
+
+    with pytest.raises(ValueError):
+        tutor.validate_answer(payload, [item])
+
+    fallback = tutor.safe_fallback(claim, [item])
+    assert fallback["avaliacao_evidencias"] == "EVIDENCIAS_INSUFICIENTES"
+    assert fallback["evidencias_favoraveis"] == []
+    assert fallback["evidencias_contrarias"] == []
+    assert fallback["fontes_usadas"] == []
+
+
+@pytest.mark.parametrize("claim, quote", [
+    ("A cantora Elisa morreu?", "A cantora Elisa não morreu."),
+    ("A atleta Elisa foi vacinada?", "A atleta Elisa não foi vacinada."),
+    ("A vacina Luma foi aprovada?", "A vacina Luma não foi aprovada."),
+])
+def test_refutacao_factual_explicita_sustenta_lado_contrario(claim, quote):
+    item = {"numero": 1, "tipo": "evidencia", "titulo": "Nota de apuração",
+            "origem": "Fonte", "grupo_origem": "origem",
+            "url": "https://example.org/nota", "data": "", "qualificada": True,
+            "trecho": quote, "relevancia": "direta"}
+    payload = {"afirmacao": claim, "evidencias_favoraveis": [],
+               "evidencias_contrarias": [f'Fonte [1]: “{quote}”']}
+
+    answer = tutor.validate_answer(payload, [item])
+    assert answer["evidencias_contrarias"] == [f'Fonte [1]: “{quote}”']
+    assert answer["evidencias_favoraveis"] == []
+    assert answer["fontes_usadas"] == [1]
+
+
+def test_ressalva_sobre_outro_fato_nao_bloqueia_citacao_afirmativa():
+    claim = "A cantora Elisa morreu?"
+    quote = "a cantora Elisa morreu ontem, segundo o hospital."
+    item = {"numero": 1, "tipo": "evidencia", "titulo": "Nota do hospital",
+            "origem": "Fonte", "grupo_origem": "origem",
+            "url": "https://example.org/nota", "data": "", "qualificada": True,
+            "trecho": "Não há confirmação oficial sobre os documentos, mas " + quote,
+            "relevancia": "direta"}
+    payload = {"afirmacao": claim, "evidencias_favoraveis": [f'Fonte [1]: “{quote}”'],
+               "evidencias_contrarias": []}
+    answer = tutor.validate_answer(payload, [item])
+    assert answer["evidencias_favoraveis"] == [f'Fonte [1]: “{quote}”']
+
+
+@pytest.mark.parametrize("quote, side, accepted", [
+    ("O projeto Aurora foi aprovado em 2024.", "evidencias_favoraveis", True),
+    ("O projeto Aurora foi aprovado em 15 de junho de 2024.", "evidencias_favoraveis", True),
+    ("O projeto Aurora não foi aprovado em 15 de junho de 2024.", "evidencias_contrarias", False),
+    ("O projeto Aurora foi aprovado em 2025.", "evidencias_favoraveis", False),
+    ("O projeto Aurora foi aprovado em 2025.", "evidencias_contrarias", False),
+    ("O projeto Aurora foi aprovado em 15 de junho de 2025.", "evidencias_favoraveis", False),
+    ("O projeto Aurora não foi aprovado em 15 de junho de 2025.", "evidencias_contrarias", False),
+    ("O projeto Aurora foi aprovado.", "evidencias_favoraveis", False),
+])
+def test_aprovacao_com_ano_exige_o_ano_da_alegacao(quote, side, accepted):
+    claim = "O projeto Aurora foi aprovado em 2024."
+    item = {"numero": 1, "tipo": "evidencia", "titulo": "Projeto Aurora", "origem": "Fonte",
+            "grupo_origem": "origem", "url": "https://example.org/aurora", "data": "",
+            "qualificada": True, "trecho": quote, "relevancia": "direta"}
+    payload = {"afirmacao": claim, "evidencias_favoraveis": [], "evidencias_contrarias": []}
+    payload[side] = [f'Fonte [1]: “{quote}”']
+    if accepted:
+        assert tutor.validate_answer(payload, [item])[side]
+    else:
+        with pytest.raises(ValueError, match="Polaridade"):
+            tutor.validate_answer(payload, [item])
+
+
+def test_negacao_de_dia_nao_sustenta_negacao_do_ano():
+    claim = "O projeto Aurora não foi aprovado em 2024."
+    quote = "O projeto Aurora não foi aprovado em 15 de junho de 2024."
+    item = {"numero": 1, "tipo": "evidencia", "titulo": "Projeto Aurora", "origem": "Fonte",
+            "grupo_origem": "origem", "url": "https://example.org/aurora", "data": "",
+            "qualificada": True, "trecho": quote, "relevancia": "direta"}
+    payload = {"afirmacao": claim, "evidencias_favoraveis": [f'Fonte [1]: “{quote}”'],
+               "evidencias_contrarias": []}
+    with pytest.raises(ValueError, match="Polaridade"):
+        tutor.validate_answer(payload, [item])
+
+
+def test_negacao_de_dia_nao_refuta_aprovacao_posterior_no_mesmo_ano():
+    claim = "O projeto Aurora foi aprovado em 2024."
+    quote = "O projeto Aurora não foi aprovado em 15 de junho de 2024."
+    item = {"numero": 1, "tipo": "evidencia", "titulo": "Projeto Aurora", "origem": "Fonte",
+            "grupo_origem": "origem", "url": "https://example.org/aurora", "data": "",
+            "qualificada": True, "trecho": quote + " O projeto Aurora foi aprovado em 30 de junho de 2024.",
+            "relevancia": "direta"}
+    payload = {"afirmacao": claim, "evidencias_favoraveis": [],
+               "evidencias_contrarias": [f'Fonte [1]: “{quote}”']}
+    with pytest.raises(ValueError, match="Polaridade"):
+        tutor.validate_answer(payload, [item])
+
+
+def test_versao_de_resposta_reflete_novo_prompt():
+    assert tutor.RESPONSE_VERSION == "analise-evidencias-v13"
 
 
 def test_conversa_inclui_checagem_sem_promover_rating_a_veredito(monkeypatch):
