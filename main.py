@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent
 CORPUS = ROOT / "data" / "documents.jsonl"
 INDEX = ROOT / "vector_store" / "chroma"
 CANDIDATES = ROOT / "data" / "candidatas_checagens.jsonl"
-EXAMPLE_CASES = ROOT / "references" / "casos_avaliacao_exemplo.jsonl"
+EXAMPLE_CASES = ROOT / "docs" / "casos_avaliacao_exemplo.jsonl"
 REVIEWED_CASES = ROOT / "data" / "avaliacao" / "casos.jsonl"
 console = Console()
 

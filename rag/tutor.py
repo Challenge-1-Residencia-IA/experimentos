@@ -99,7 +99,6 @@ def ask(
     generation_diagnostics: dict | None = None,
     pipeline_started: float | None = None,
     result_items: list[dict] | None = None,
-    fail_on_transport_error: bool = False,
 ) -> dict:
     started = pipeline_started if pipeline_started is not None else time.perf_counter()
     load_dotenv(ROOT / ".env")
@@ -179,8 +178,6 @@ def ask(
         repaired = local_repairs > 0
         fallback = False
     except (ValueError, requests.RequestException, json.JSONDecodeError, KeyError) as error:
-        if fail_on_transport_error and isinstance(error, requests.RequestException):
-            raise
         first_valid = False
         validation_errors.append(str(error))
         answer = safe_fallback(question, items)
@@ -467,7 +464,7 @@ def _local_evidence(store: VectorStore, claim: str, excluded_groups: set[str]) -
 
 def ask_online(message: str, researcher, store: VectorStore | None = None,
                history: list[dict] | None = None, *, track: bool = True,
-               model_name: str | None = None, fail_on_transport_error: bool = False) -> dict:
+               model_name: str | None = None) -> dict:
     """Pesquisa páginas atuais, seleciona trechos e gera a resposta educativa."""
     from rag.web import passages, split_input
 
@@ -545,7 +542,6 @@ def ask_online(message: str, researcher, store: VectorStore | None = None,
     answer = ask(claim, store, evidence=evidence, teaching=teaching,
                  history=history, publication=publication, track=track,
                  model_name=model_name,
-                 fail_on_transport_error=fail_on_transport_error,
                  pipeline_started=pipeline_started,
                  result_items=result_items,
                  tracking_context={"modo": "web", "pesquisa_web": diagnostics,
