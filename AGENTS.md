@@ -1,12 +1,9 @@
 # Instruções para os agentes do NexoVerdict
 
-## Identificar o computador antes de executar comandos
+## Contexto do ambiente
 
-- A cada novo pedido do usuário que envolva executar comandos, pergunte: **“Você está no PC do trabalho ou no seu PC pessoal?”**
-- Aguarde a resposta antes de executar comandos relacionados ao pedido. Se o usuário já informou o ambiente no próprio pedido, use essa informação sem perguntar novamente.
-- A confirmação vale para os comandos daquele pedido e deve ser compartilhada com todos os subagentes. Não pergunte novamente a cada comando da mesma tarefa.
-- Não deduza o ambiente pelo sistema operacional, nome de usuário, caminho do projeto ou por uma conversa anterior.
-- Enquanto aguarda, pode planejar e revisar o conteúdo já disponível, sem executar comandos.
+- Use as informações disponíveis na conversa sobre o computador em uso e compartilhe as restrições aplicáveis com os subagentes.
+- Não pergunte rotineiramente se o usuário está no PC pessoal ou no trabalho. Solicite esclarecimento somente se uma informação ausente impedir uma ação específica.
 
 ## Restrições do ambiente — somente no PC do trabalho
 
@@ -49,7 +46,7 @@ O agente principal coordena as etapas, define interfaces, distribui arquivos e i
 
 - Planeja a validação e cria testes proporcionais ao risco da mudança.
 - Distingue testes simulados, testes com serviços locais e testes reais no WhatsApp.
-- Respeita a identificação do computador e qualquer instrução vigente de não executar testes. Criar testes não equivale a autorização para executá-los.
+- Respeita as restrições do ambiente e qualquer instrução vigente de não executar testes. Criar testes não equivale a autorização para executá-los.
 - Não baixa modelos nem inicia benchmarks ou testes pesados sem que isso esteja no escopo autorizado.
 - Informa exatamente o que foi executado, resultados, falhas e pendências. Nunca declara aprovação de testes não executados.
 
@@ -76,7 +73,7 @@ O agente principal coordena as etapas, define interfaces, distribui arquivos e i
 ## Coordenação e entrega
 
 - Os papéis acima são suficientes como padrão. Crie outro papel apenas se houver uma necessidade concreta não coberta, explicando sua responsabilidade.
-- Delegue objetivo, arquivos, interfaces, critérios de conclusão, ambiente confirmado e restrições vigentes de testes.
+- Delegue objetivo, arquivos, interfaces, critérios de conclusão, contexto disponível do ambiente e restrições vigentes de testes.
 - Paralelize tarefas independentes dentro do limite de agentes disponível; execute em sequência as que compartilham arquivos ou dependem de resultados anteriores.
 - Evite edições simultâneas nos mesmos arquivos. Mudanças compartilhadas devem ter um responsável definido.
 - Preserve alterações do usuário e não reverta trabalho alheio para simplificar a tarefa.
