@@ -1,4 +1,7 @@
 # Variáveis de ambiente e segredos
+# Documentação local: não versionar planos, relatórios ou arquivos em docs.
+/docs/
+
 .env
 .env.*
 !.env.example
