@@ -89,7 +89,21 @@ Contagens brutas crescem com o tamanho do texto. Por isso as métricas acima sã
 | GroupKFold | Validação cruzada que mantém os itens de um grupo (o par fake/true) do mesmo lado. |
 | Vazamento | Informação do teste usada no treino. Deixa a nota melhor do que o modelo é. |
 
+## Avaliação do sistema de IA (LLM + RAG)
+
+| Termo | Definição |
+|---|---|
+| Golden set | Conjunto fixo de mensagens com gabarito escrito por pessoas. Toda versão do sistema é avaliada nele, o que permite comparar versões. |
+| Corretor | Função que compara uma resposta com o gabarito de um item e devolve acerto, erro ou "não se aplica". Há um por requisito. |
+| Taxa de acerto do corretor | Acertos ÷ itens em que o corretor se aplica. Itens em que não se aplica (ex.: aviso de risco em item sem tema de risco) ficam fora da conta. |
+| Não medido | O sistema não produz o campo que o corretor precisa (ex.: natureza das afirmações). Não é zero: é ausência de dado. |
+| Kappa de Cohen | Concordância entre dois anotadores descontado o acaso. Acima de 0,6 = substancial (Landis e Koch, 1977). Com quase todos os itens numa só categoria, pode ser baixo mesmo com concordância bruta alta (paradoxo do kappa). |
+| Latência mediana e p95 | Tempo de resposta típico e o tempo abaixo do qual ficam 95% das respostas. O p95 mostra a experiência dos casos lentos. |
+| Falso positivo de guardrail | Mensagem legítima recusada pelo guardrail. É o erro mais grave: o sistema deixa de fazer a sua função. |
+| Conjunto de calibração × teste | Calibração: casos usados para ajustar regras ou prompt. Teste: casos nunca vistos no ajuste. Só o teste mede o desempenho real; acerto muito maior na calibração indica sobreajuste. |
+
 ## Referências
 
 - Romano, J., Kromrey, J. D., Coraggio, J., & Skowronek, J. (2006). *Appropriate statistics for ordinal level data: Should we really be using t-test and Cohen's d for evaluating group differences on the NSSE and other surveys?* Annual meeting of the Florida Association of Institutional Research.
 - Cohen, J. (1988). *Statistical Power Analysis for the Behavioral Sciences* (2ª ed.). Lawrence Erlbaum Associates.
+- Landis, J. R., & Koch, G. G. (1977). The measurement of observer agreement for categorical data. *Biometrics*, 33(1), 159–174.

@@ -31,6 +31,7 @@ consulta.
 - [MLflow local](#mlflow-local)
 - [Métricas](#métricas)
 - [DagsHub e versionamento compartilhado](#dagshub-e-versionamento-compartilhado)
+- [Guardrails](#guardrails)
 - [Dados versionados com DVC](#dados-versionados-com-dvc)
 - [O que pode ser commitado](#o-que-pode-ser-commitado)
 - [Estrutura do repositório](#estrutura-do-repositório)
@@ -118,7 +119,8 @@ não são copiados; a versão registra seu nome e digest para conferência.
 
 - macOS ou Linux;
 - Git;
-- Python 3.11 ou 3.12;
+- Python 3.11 a 3.13 (recomendado: 3.12, indicado em `.python-version`). O Python 3.14
+  ainda não é suportado por bibliotecas usadas no projeto, como o NeMo Guardrails;
 - [Ollama](https://ollama.com/) instalado;
 - espaço em disco para Qwen, embeddings, corpus e índice;
 - internet para instalação, download, modo web e DagsHub.
@@ -133,19 +135,21 @@ estiverem disponíveis na máquina.
 ```bash
 git clone https://github.com/Challenge-1-Residencia-IA/experimentos.git
 cd experimentos
-git checkout feat/rag
 ```
 
 ### 2. Criar e ativar o ambiente virtual
 
 ```bash
-python3.11 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
+python --version   # deve mostrar 3.11, 3.12 ou 3.13
 python -m pip install --upgrade pip
 ```
 
-Se `python3.11` não existir, use `python3` e confirme a versão com
-`python --version`.
+Não use o `python3` do sistema sem conferir a versão: em distribuições recentes ele já é
+o 3.14. Se `python3.12` não existir, instale o interpretador com `uv python install 3.12`
+(e crie o ambiente com o caminho mostrado por `uv python find 3.12`) ou com `pyenv`; o
+ambiente continua sendo um `venv` comum.
 
 ### 3. Instalar as dependências do RAG
 
@@ -823,6 +827,42 @@ python -m scripts.testar_modelo_dagshub \
   --version 1 \
   --modo local
 ```
+
+## Guardrails
+
+O pacote `guardrails/` protege a tutora em três camadas. Os pontos de entrada (menu,
+`scripts.perguntar_rag` e o modelo registrado no MLflow) chamam a tutora por
+`responder_com_guardrails(ask_online, mensagem, ...)`.
+
+| Camada | Arquivo | O que faz | Requisitos |
+|---|---|---|---|
+| Entrada | `guardrails/entrada.py` | Remove caracteres invisíveis; responde na hora, sem busca nem modelo, a mensagens vazias, saudações, pedidos fora do escopo (criar código, textos, traduções, dúvidas gerais) e instruções ao assistente (prompt injection); encurta mensagens acima de `TAMANHO_MAXIMO` e avisa o usuário | RNF-02, GR-03, IA-01 |
+| Blindagem | `guardrails/blindagem.py` | Antes de ir ao prompt, cada título e trecho de fonte (web ou base) perde marcações de papel de chat e frases que tentam instruir o modelo | GR-03 |
+| Saída | `guardrails/saida.py` | Remove dos textos gerados frases com veredito de verdadeiro/falso ou que julgam o usuário (citações entre aspas são preservadas); acrescenta aviso e fontes oficiais em temas de risco (saúde, eleição, golpe, segurança) | GR-01, GR-04, GR-06 |
+
+### Rails de entrada com NeMo Guardrails
+
+Os rails de entrada rodam pelo [NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails)
+(NVIDIA), configurado em `guardrails/nemo/` (`config.yml` e `rails.co`) e chamado por
+`guardrails/camada_nemo.py` com `LLMRails.check`. O NeMo só verifica a entrada; a resposta
+continua sendo gerada pela tutora.
+
+1. `verificacao deterministica`: as verificações por padrão de `guardrails/entrada.py`, registradas
+   como action. Recusam em menos de 1 ms, sem chamar o LLM.
+2. `self check input`: rail da biblioteca do NeMo, com prompt em português e exemplos (few-shot),
+   que pede ao Qwen para classificar escopo e tentativa de instrução nos casos que os padrões não
+   pegam (por exemplo, "me conta uma piada"). Custa cerca de 1 s e só é usado em mensagens com até
+   `LIMITE_PALAVRAS_LLM` palavras e sem link: nos testes, o Qwen bloqueava por engano alguns boatos
+   longos, e pedidos fora do escopo costumam ser curtos.
+
+Se o NeMo ou o Ollama falharem, as verificações por padrão continuam valendo e a falha é registrada
+em `guardrails.entrada.sinais`. `GUARDRAILS_NEMO=0` desativa o NeMo. O nome do modelo vem de
+`OLLAMA_MODEL`, como na tutora. O NeMo exige Python 3.11 a 3.13.
+
+Cada resposta traz o campo `guardrails`, com o que foi recusado, removido ou acrescentado.
+Os padrões ficam em `guardrails/padroes.py` e são heurísticas por expressões regulares,
+aplicadas sobre o texto sem acento e em minúsculas. Os testes (`tests/test_guardrails.py`)
+incluem casos adversariais e casos legítimos que não podem ser bloqueados.
 
 ## Dados versionados com DVC
 

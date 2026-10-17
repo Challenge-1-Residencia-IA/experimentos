@@ -81,7 +81,7 @@ def frases_repetidas(textos: Iterable[str], classes: Iterable[str] | None = None
 
 def variacoes_boilerplate(tabela: pd.DataFrame) -> list[str]:
     """Todas as variações de uma tabela de `frases_repetidas`, da mais longa à mais curta (ordem de remoção)."""
-    return sorted({v for variacoes in tabela["variacoes"] for v in variacoes}, key=len, reverse=True)
+    return sorted({v for variacoes in tabela["variacoes"] for v in variacoes}, key=lambda v: (-len(v), v))
 
 
 def detectar_boilerplate(textos: Iterable[str], limiar: int = 20) -> list[str]:

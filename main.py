@@ -243,6 +243,7 @@ def talk() -> None:
 def _talk() -> None:
     from rag.auto_refresh import refresh_if_due
     from rag.store import VectorStore
+    from guardrails import responder_com_guardrails
     from rag.tutor import ask_online
     from rag.web import WebResearcher
 
@@ -272,7 +273,7 @@ def _talk() -> None:
             continue
         try:
             with console.status("Pesquisando na web e lendo fontes...", spinner="dots"):
-                answer = ask_online(question, researcher, store=store, history=history)
+                answer = responder_com_guardrails(ask_online, question, researcher, store=store, history=history)
         except Exception as error:
             console.print(f"[red]Não foi possível investigar:[/red] {type(error).__name__}: {error}")
             continue
@@ -410,6 +411,7 @@ def temporary_test() -> None:
         raise ValueError("Digite uma pergunta ou alegação")
 
     from rag.store import VectorStore
+    from guardrails import responder_com_guardrails
     from rag.tutor import ask, ask_online
     from rag.web import WebResearcher
 
@@ -417,10 +419,10 @@ def temporary_test() -> None:
         store = VectorStore()
         with console.status("Executando teste temporário...", spinner="dots"):
             if mode == "web":
-                answer = ask_online(question, WebResearcher(), store=store)
+                answer = responder_com_guardrails(ask_online, question, WebResearcher(), store=store)
             else:
-                answer = ask(question, store=store,
-                             tracking_context={"modo": "local_temporario"})
+                answer = responder_com_guardrails(ask, question, store=store,
+                                                  tracking_context={"modo": "local_temporario"})
         render_answer(answer)
         console.print(Panel(
             f"Banco: {base / 'mlflow.db'}\nArtefatos: {base / 'artifacts'}\n"

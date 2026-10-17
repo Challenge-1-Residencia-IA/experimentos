@@ -1,7 +1,13 @@
-"""Empacota o RAG atual e cria uma versão no Model Registry do DagsHub."""
+"""Empacota o RAG atual como modelo MLflow (pyfunc).
+
+Sem argumentos, cria uma versão no Model Registry do DagsHub. Com `--salvar-em DIR`, salva o modelo
+numa pasta local, que pode ser carregada com `mlflow.pyfunc.load_model(DIR)`; nesse caso, licenças
+ainda não revisadas ficam registradas nos metadados em vez de bloquear o empacotamento.
+"""
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -43,13 +49,17 @@ def embedding_revision() -> str:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--salvar-em", type=Path, metavar="DIR",
+                        help="Salva o modelo nesta pasta local em vez de registrá-lo no DagsHub")
+    args = parser.parse_args()
     load_dotenv(ROOT / ".env")
     if not STORE.is_dir() or not CORPUS.is_file():
         raise FileNotFoundError("Índice Chroma e corpus são necessários para registrar o RAG")
     documents = read_corpus()
     licenses = dict(Counter(str(item.get("license", "não informada")) for item in documents.values()))
     unreviewed = {name for name in licenses if name.casefold() in {"", "verificar", "não informada"}}
-    if unreviewed:
+    if unreviewed and not args.salvar_em:
         raise ValueError(
             "Registro remoto bloqueado: revise a licença/condição de uso do corpus: "
             + ", ".join(sorted(unreviewed))
@@ -83,11 +93,35 @@ def main() -> None:
         "contract": contract_fingerprint(SYSTEM_PROMPT, ANSWER_SCHEMA),
         "runtime": "Ollama local; pesos Qwen não incluídos no artefato",
     }
-    configure_tracking(remote=True)
+    manifest["licencas_pendentes_de_revisao"] = sorted(unreviewed)
     requirements = [f"{name}=={version(name)}" for name in (
         "mlflow", "chromadb", "sentence-transformers", "requests",
         "python-dotenv", "feedparser", "beautifulsoup4", "pypdf", "pandas",
-        "ddgs", "trafilatura")]
+        "ddgs", "trafilatura", "nemoguardrails")]
+    artifacts = {"index": str(STORE), "corpus": str(CORPUS),
+                 "web_sources": str(ROOT / "web_sources.json")}
+    if dataset_manifest.is_file():
+        artifacts["dataset_manifest"] = str(dataset_manifest)
+    if evaluation_cases.is_file():
+        artifacts["evaluation_cases"] = str(evaluation_cases)
+    model_args = dict(
+        python_model=RAGModel(qwen, digest, MODEL, revision),
+        artifacts=artifacts,
+        code_paths=[str(ROOT / "rag"), str(ROOT / "guardrails"), str(ROOT / "prompts")],
+        pip_requirements=requirements,
+        metadata=manifest,
+    )
+    if args.salvar_em:
+        destino = args.salvar_em.resolve()
+        if destino.exists():
+            raise FileExistsError(f"{destino} já existe; escolha outra pasta ou remova a anterior")
+        mlflow.pyfunc.save_model(path=str(destino), **model_args)
+        (destino / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(json.dumps({"modelo": str(destino), "ollama_model": qwen, "ollama_sha256": digest,
+                          "index_sha256": index_hash, "corpus_sha256": corpus_hash,
+                          "licencas_pendentes_de_revisao": sorted(unreviewed)}, ensure_ascii=False, indent=2))
+        return
+    configure_tracking(remote=True)
     with mlflow.start_run(run_name=f"registro-rag-{RESPONSE_VERSION}") as run:
         mlflow.log_params({
             "response_version": RESPONSE_VERSION,
@@ -103,20 +137,7 @@ def main() -> None:
         mlflow.log_dict(manifest, "versao/manifest.json")
         mlflow.log_dict(ANSWER_SCHEMA, "versao/schema.json")
         mlflow.log_text(SYSTEM_PROMPT, "versao/prompt.txt")
-        artifacts = {"index": str(STORE), "corpus": str(CORPUS),
-                     "web_sources": str(ROOT / "web_sources.json")}
-        if dataset_manifest.is_file():
-            artifacts["dataset_manifest"] = str(dataset_manifest)
-        if evaluation_cases.is_file():
-            artifacts["evaluation_cases"] = str(evaluation_cases)
-        model = mlflow.pyfunc.log_model(
-            artifact_path="modelo_rag",
-            python_model=RAGModel(qwen, digest, MODEL, revision),
-            artifacts=artifacts,
-            code_paths=[str(ROOT / "rag"), str(ROOT / "prompts")],
-            pip_requirements=requirements,
-            metadata=manifest,
-        )
+        model = mlflow.pyfunc.log_model(artifact_path="modelo_rag", **model_args)
         registered = mlflow.register_model(model.model_uri, REGISTERED_MODEL_NAME)
         client = MlflowClient()
         client.set_model_version_tag(REGISTERED_MODEL_NAME, registered.version, "run_id", run.info.run_id)
